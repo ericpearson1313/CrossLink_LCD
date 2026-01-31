@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BaliProject version="3.2" title="testgen" device="LIF-MD6000-6KMG80I" default_implementation="impl1">
+    <Options/>
+    <Implementation title="impl1" dir="impl1" description="impl1" synthesis="lse" default_strategy="Strategy1">
+        <Options def_top="chip_top"/>
+        <Source name="chip_top.v" type="Verilog" type_short="Verilog">
+            <Options top_module="chip_top"/>
+        </Source>
+        <Source name="mipi_dsi_tx/mipi_dsi_tx.v" type="Verilog" type_short="Verilog">
+            <Options/>
+        </Source>
+        <Source name="testgen.lpf" type="Logic Preference" type_short="LPF">
+            <Options/>
+        </Source>
+    </Implementation>
+    <Strategy name="Strategy1" file="testgen1.sty"/>
+</BaliProject>
