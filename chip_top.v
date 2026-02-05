@@ -409,42 +409,7 @@ module mipi_format_lcd (
 		input right;
 		ini_data = {
 		// MFG Commands 
-		// Mfg cmd access protect off  8	1	
-		ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hB0, 8'h04 } ),															
-		// Sequence Control	8	2	
-		ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hD6, 8'h00 } ),																
-		// DSI Command (2 port)	16	3	
-		ecc( { 8'h29, 8'h0A, 8'h00} ), crc10( { 8'hB6, 8'h30, 8'h6B, 8'h00, 8'h06, 8'h33, 8'hBA, 8'h00, 8'h1A, 8'h7a} ),					
-		// Display Mode (FIFO)	10	4	
-		ecc( { 8'h29, 8'h04, 8'h00} ), crc5( { 8'hB7, 8'h54, 8'h00, 8'h00, 8'h00 } ),														
-		// right, Left outpin settings	11	5	
-		ecc( { 8'h29, 8'h05, 8'h00} ), ( right ) ? crc5( { 8'hB9, 8'h0F, 8'hF3, 8'h04, 8'h26 } ) :
-                                                   crc5( { 8'hB9, 8'h0E, 8'h0B, 8'h04, 8'h26 } ) ,
-		// Display setting 1	15	6	
-		ecc( { 8'h29, 8'h09, 8'h00} ), crc9( { 8'hC0, 8'h44, 8'h86, 8'h0A, 8'h00, 8'h06, 8'h40, 8'hDC, 8'h91} ),								
-		// display setting 2	8	7	
-		ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hF1, 8'h1E } ),																
-		// display setting 3	23	8	
-		ecc( { 8'h29, 8'h11, 8'h00} ), crc17( { 8'hC6, 8'h40, 8'h06, 8'h40, 8'h06, 8'h25, 8'h3F, 8'h06, 
-		                                        8'h43, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00} ),	
-		// display setting 3 cont	8	9	
-		ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hCD, 8'h00 } ),
-		// display seetting 4	14	10	
-		ecc( { 8'h29, 8'h08, 8'h00} ), crc8( { 8'hCF, 8'h00, 8'h00, 8'h80, 8'h46, 8'h61, 8'h00, 8'h82} ),									
-		// right/left display setting 5	12	11	
-		ecc( { 8'h29, 8'h06, 8'h00} ), ( right ) ? crc6( { 8'hEC, 8'h05, 8'hA0, 8'h00, 8'h00, 8'h00 } ) :
-		                                           crc6( { 8'hEC, 8'h04, 8'hD3, 8'h00, 8'h00, 8'h00 } ) ,												
-		// User CMDs
-		// set compression mode off	8	12
-		ecc( { 8'h39, 8'h02, 8'h00} ), crc2( { 8'h03, 8'h00 } ),															
-		// set tear scanline	9	13	
-		ecc( { 8'h39, 8'h03, 8'h00} ), crc3( { 8'h44, 8'h00, 8'h00 } ),														
-		// set tear on	8	7	
-		ecc( { 8'h39, 8'h02, 8'h00} ), crc2( { 8'h35, 8'h00 } ),																
-		// set address mode	8	14	
-		ecc( { 8'h39, 8'h02, 8'h00} ), crc2( { 8'h36, 8'h00 } ),																
-		// set pixel format	8	15	
-		ecc( { 8'h39, 8'h02, 8'h00} ), crc2( { 8'h3A, 8'h77 } ),	
+		// <redacted>
 	
 		// Alignment NOP to get to 64b boundary
 	    // Crc lens: 2,2,10,5,5,9,2,17,2,8,6,2,3,2,2,2, needs 9 bytes(crc3) to align at 23 words
