@@ -7,12 +7,11 @@
 // This design directly instantiates the 2 hardened mipi_dsi_tx cores
 // Outputs 2x4Lane mipi DSI streams:
 // Manufactures LCD startup sequence.
-// RGB Test pattern .
+// RGB Test pattern.
 
 module chip_top (
 	// System control
 	clkin, 
-	reset_n,
 	// MIPI DSI TX port
 	a_clk_n,
 	a_clk_p,
@@ -22,78 +21,115 @@ module chip_top (
 	b_clk_p,
 	b_data_n, 
 	b_data_p,
+	// LCD Control Lines
+	lcd_en_vcc,
+	lcd_reset,
+	lcd_pwm,
 	// Test I/O
-	led0,
-	led1,
-	led2,
-	led3,
-	key0,
-	key1,
+	led0, 	// UL Led (D2) -- 2Hz Blink *-*-----
+	led1,	// LR Led (D3) -- reset output
+	led2,	// UR Led (D4) -- test blinker0
+	led3,	// LL Led (D5) -- test blinker1
+	key0, 	// L button (K2) -- tied to blinker 0 for now.
+	key1, 	// R Button (K1) -- pushbutton reset
 	// fpga uart
 	fpga_txd,
 	fpga_rxd
 	);
 	
-	// System
-	input wire clkin;
-	input wire reset_n;
+	////////////////////////
+	// Declare I/O
+	////////////////////////
 	
-	// debug
+	// System
+	input wire clkin; // from 50 hz Osc
+
+// debug
 	output wire led0, led1, led2, led3;
 	input wire key0, key1;
 	output wire fpga_txd;
 	input wire fpga_rxd;
+	// LCD Controls
+	output wire lcd_en_vcc, lcd_reset;
+	input wire lcd_pwm;
 	// MIPI DSI Tx
 	inout wire a_clk_n, a_clk_p;
 	inout wire [3:0] a_data_n, a_data_p;
 	inout wire b_clk_n, b_clk_p;
 	inout wire [3:0] b_data_n, b_data_p;
+
 	
-	// Tie off used outputs
-	assign fpga_txd = fpga_rxd;
-	assign led3 = key1;
-	assign led1 = key0;
-	assign led2 = !key1;
+	/////////////////////////
+	// Clock and Reset
+	/////////////////////////
 	
-	// System clock (HS byte)
+	// 50 hz clkin is pin driven from external 50 Mhz Osc
+	
+	// 62.5 Mhz System clock is the HSbyteclk from the mipi cores.
 	wire clk, clkb; // these should be exaclty in phase, with just jitter (no fifo needed?)
 
-	// Synchronize reset
-	reg [4:0] reset_n_reg;
-	reg reset_reg;
-	wire reset;
-	always @(posedge clk) begin
-		if( !reset_n ) begin
-			reset_n_reg <= 0;
-			reset_reg <= 1;
-		end else begin
-			reset_n_reg <= { reset_n_reg[3:0], 1'b1 };
-			reset_reg <= !reset_n_reg[4];
-		end
-	end
-	assign reset = reset_reg; 
+	// Reset Strategy
+	//
+	// As this is an fpga we config determines start state,
+	// however we'd like a functional syncronous global 'reset'
+	// At fpgra startup, reset remains asserted for 256 clkin_cycles
+	// External pushbutton K1 (left button) also generates a 100 Ms reset
 
-	// Some simple test counters for now
-	reg [31:0] count;
-	always @(posedge clk) begin
-		if( !reset_n ) begin
-			count <= 0;
-		end else begin
-			count <= count + 1;
-		end
-	end
+	// fpga config reset
+	reg [7:0] cfg_count; // init to zero at fpga config
+	always @( posedge clk )
+		cfg_count <= ( cfg_count == 8'hFF ) ? 8'hFF : cfg_count + 1;
 	
-	reg [31:0] count2;
-	always @(posedge clk) begin
-		if( !reset_n ) begin
-			count2 <= 0;
-		end else begin
-			count2 <= count + 3;
-		end
-	end
+	// ext (pushbutton) reset (active low key1)
+	// not triggered during chip config
+	
+	localparam MSEC = 62500;
+	reg [23:0] ext_count;
+	always @( posedge clk ) 
+		ext_count <= ( !key1 ) ? 100*MSEC : 
+		             ( ext_count != 0 ) ? ext_count - 1 : 0;
 		
-	assign led0 = count[26] & count2[25];
+	// global sync reset
+	reg reset;
+	always @(posedge clk) 
+		reset <= ( cfg_count != 8'hff || ext_count != 0 ) ? 1'b1 : 1'b0;
+		
+	// output reset as LED
+	assign led1 = reset;
+
+	////////////////////////
+	// Uart - sync loopback
+	////////////////////////
 	
+	reg [7:0] uart_pipe;
+	reg txd;
+	always @(posedge clk) 
+		{ txd, uart_pipe } <= { uart_pipe, fpga_rxd };
+	assign fpga_txd = txd;
+	
+	///////////////////////
+	// Mini LED 'scopes
+	///////////////////////
+	
+	// A logic probe drives an LED at 4Hz if it see's any changes in the monitored signal
+	// one for each of LED2,3
+	
+	reg [3:0] t0del, t1del;
+	reg t0flag, t1flag;
+	reg [23:0] t0count, t1count;
+	always @(posedge clk) begin
+			t0del <= { t0del[2:0], lcd_pwm }; 	// input 0
+			t1del <= { t1del[2:0], key0 };		// input 1
+			t0flag <= (t0del[3]^t0del[2]) | (( t0count == 0 && !t0flag ) ? 1'b0 : t0flag ); // latch flag
+			t1flag <= (t1del[3]^t1del[2]) | (( t1count == 0 && !t1flag ) ? 1'b0 : t1flag ); // latch flag
+			t0count <= ( t0count == 0 && t0flag ) ? 'h400000 : ( t0count != 0 ) ? t0count - 1 : 0;
+			t1count <= ( t1count == 0 && t1flag ) ? 'h400000 : ( t1count != 0 ) ? t1count - 1 : 0;
+	end
+	
+	assign led2 = t0count[23] ^ t0del[3];
+	assign led3 = t1count[23] ^ t1del[3];
+	
+
 	/////////////////////////
 	// 2x4 MIPI_DSI TX
 	/////////////////////////
@@ -114,7 +150,7 @@ module chip_top (
 		.d0_rxlpp	( ), 
 		
 		// TX LP ports
-		.d0_txlpen	( d0_txlpen ), // always off?
+		.d0_txlpen	( d0_txlpen ),
     	.d0_txlpn	( d0_txlpn ), 
 		.d0_txlpp	( d0_txlpp ), 
 		.d1_txlpn	( 1'b0 ), 
@@ -126,7 +162,7 @@ module chip_top (
 		
 		// TX HS ports
 		.d0_txhsen	( d0_txhsen ), 
-		.txdata	( a_tx_data[63:0] | {2{count[31:0]}}),		// temp counter connect
+		.txdata	( a_tx_data[63:0] ),	
 		.txhsbyteclk( clk ), // user clock
 		
 		// PLL Ports
@@ -158,7 +194,7 @@ module chip_top (
 		.d0_rxlpp	( ), 
 		
 		// TX LP ports
-		.d0_txlpen	( d0_txlpen ), // always off?
+		.d0_txlpen	( d0_txlpen ),
     	.d0_txlpn	( d0_txlpn ), 
 		.d0_txlpp	( d0_txlpp ), 
 		.d1_txlpn	( 1'b0 ), 
@@ -170,8 +206,8 @@ module chip_top (
 		
 		// TX HS ports
 		.d0_txhsen	( d0_txhsen ), 
-		.txdata	( b_tx_data[63:0] | {2{count2[31:0]}} ),	// temp counter connect	
-		.txhsbyteclk( clkb ), // phase locked to b
+		.txdata	( b_tx_data[63:0] ),
+		.txhsbyteclk( clkb ), // phase locked to clk?
 		
 		// PLL Ports
 		.refclk		( clkin ), 
@@ -203,14 +239,14 @@ module chip_top (
 		.reset	( reset ),
 		// LCD Info inputs
 		.lcd_te( 1'b1 ),
-		.lcd_pwm( 1'b0 ),
+		.lcd_pwm( lcd_pwm ),
 		.lcd_id( 2'b01 ),
 		// LCD control outputs
-		.lcd_reset( ),
+		.lcd_reset( lcd_reset ),
 		.lcd_pn2ptx( ),
 		.lcd_en_vsp( ),
 		.lcd_en_vsn( ),
-		.lcd_en_vcc( ),
+		.lcd_en_vcc( lcd_en_vcc ),
 		// Mipi Control Outputs
 		.txlpen	( d0_txlpen ),
 		.txlpn	( d0_txlpn ),
@@ -265,25 +301,20 @@ module chip_top (
 	);
 
 	// Commit overlay, sh watermark.sh after pull before building
-	//wire [7*4-1:0] commit = 28'h
-	//`include "commit.mem"
-	//;
-	//hex_overlay4 #( 7 ) i_hex0( clk, reset, char_x, char_y, hex_char, commit, 8'd4, 8'd98, ovl0 );
-	commit_overlay i_com_ovl( clk, reset, vsync, hsync, active, phase, ovl0 ); 
+	commit_overlay i_com_ovl( clk, reset, vsync, hsync, active, phase, ovl0, led0 ); 
 
 	
-	// Frame counter
+	// Frame counter hex overlay
 	reg [31:0] frame_count;
 	always @(posedge clk) begin
 		frame_count <= ( reset ) ? 0 : ( vsync ) ? frame_count + 1 : frame_count;
 	end
 	hex_overlay4 #( 8 ) i_hex1( clk, reset, char_x, char_y, hex_char, frame_count, 8'd4, 8'd4, ovl1 );
 	
-	// Clock counter
+	// Clock counter hex overlay 
 	reg [31:0] clk_count;
 	always @(posedge clk) 
 		clk_count <= ( reset ) ? 0 : clk_count + 1;
-		
 	hex_overlay4 #( 8 ) i_hex2( clk, reset, char_x, char_y, hex_char, clk_count, 8'd4, 8'd5, ovl2 );
 	
 	// Or together the overlays
@@ -357,7 +388,7 @@ module mipi_format_lcd (
 	localparam MSEC =  62500; // 1 ms
 	reg [25:0] init_count;
 	always @(posedge clk) 
-		init_count <= ( reset ) ? 0 : ( init_count == 1000*MSEC ) ? 1000*MSEC : init_count + 1;
+		init_count <= ( reset ) ? 26'h0 : ( init_count == 1000*MSEC ) ? 1000*MSEC : init_count + 1;
 
 	// Startup Sequence 
 	wire ini_active, vid_en;
@@ -378,7 +409,43 @@ module mipi_format_lcd (
 		input right;
 		ini_data = {
 		// MFG Commands 
-        // <redacted>
+		// Mfg cmd access protect off  8	1	
+		ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hB0, 8'h04 } ),															
+		// Sequence Control	8	2	
+		ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hD6, 8'h00 } ),																
+		// DSI Command (2 port)	16	3	
+		ecc( { 8'h29, 8'h0A, 8'h00} ), crc10( { 8'hB6, 8'h30, 8'h6B, 8'h00, 8'h06, 8'h33, 8'hBA, 8'h00, 8'h1A, 8'h7a} ),					
+		// Display Mode (FIFO)	10	4	
+		ecc( { 8'h29, 8'h04, 8'h00} ), crc5( { 8'hB7, 8'h54, 8'h00, 8'h00, 8'h00 } ),														
+		// right, Left outpin settings	11	5	
+		ecc( { 8'h29, 8'h05, 8'h00} ), ( right ) ? crc5( { 8'hB9, 8'h0F, 8'hF3, 8'h04, 8'h26 } ) :
+                                                   crc5( { 8'hB9, 8'h0E, 8'h0B, 8'h04, 8'h26 } ) ,
+		// Display setting 1	15	6	
+		ecc( { 8'h29, 8'h09, 8'h00} ), crc9( { 8'hC0, 8'h44, 8'h86, 8'h0A, 8'h00, 8'h06, 8'h40, 8'hDC, 8'h91} ),								
+		// display setting 2	8	7	
+		ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hF1, 8'h1E } ),																
+		// display setting 3	23	8	
+		ecc( { 8'h29, 8'h11, 8'h00} ), crc17( { 8'hC6, 8'h40, 8'h06, 8'h40, 8'h06, 8'h25, 8'h3F, 8'h06, 
+		                                        8'h43, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00} ),	
+		// display setting 3 cont	8	9	
+		ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hCD, 8'h00 } ),
+		// display seetting 4	14	10	
+		ecc( { 8'h29, 8'h08, 8'h00} ), crc8( { 8'hCF, 8'h00, 8'h00, 8'h80, 8'h46, 8'h61, 8'h00, 8'h82} ),									
+		// right/left display setting 5	12	11	
+		ecc( { 8'h29, 8'h06, 8'h00} ), ( right ) ? crc6( { 8'hEC, 8'h05, 8'hA0, 8'h00, 8'h00, 8'h00 } ) :
+		                                           crc6( { 8'hEC, 8'h04, 8'hD3, 8'h00, 8'h00, 8'h00 } ) ,												
+		// User CMDs
+		// set compression mode off	8	12
+		ecc( { 8'h39, 8'h02, 8'h00} ), crc2( { 8'h03, 8'h00 } ),															
+		// set tear scanline	9	13	
+		ecc( { 8'h39, 8'h03, 8'h00} ), crc3( { 8'h44, 8'h00, 8'h00 } ),														
+		// set tear on	8	7	
+		ecc( { 8'h39, 8'h02, 8'h00} ), crc2( { 8'h35, 8'h00 } ),																
+		// set address mode	8	14	
+		ecc( { 8'h39, 8'h02, 8'h00} ), crc2( { 8'h36, 8'h00 } ),																
+		// set pixel format	8	15	
+		ecc( { 8'h39, 8'h02, 8'h00} ), crc2( { 8'h3A, 8'h77 } ),	
+	
 		// Alignment NOP to get to 64b boundary
 	    // Crc lens: 2,2,10,5,5,9,2,17,2,8,6,2,3,2,2,2, needs 9 bytes(crc3) to align at 23 words
 		ecc( { 8'h09, 8'h03, 8'h00} ), crc3( {3{8'h00}} ),
@@ -406,15 +473,15 @@ module mipi_format_lcd (
 	always @(l_ini_data, r_ini_data) begin
 		for( ii = 0; ii < 32; ii = ii + 1 )
 			for( jj = 0; jj < 8; jj = jj + 1 ) begin
-				m_cmd_rom[32-ii][jj*8+7-:8] = l_ini_data[ii*64+63-jj*8-:8];
-				s_cmd_rom[32-ii][jj*8+7-:8] = r_ini_data[ii*64+63-jj*8-:8];
+				m_cmd_rom[31-ii][jj*8+7-:8] = l_ini_data[ii*64+63-jj*8-:8];
+				s_cmd_rom[31-ii][jj*8+7-:8] = r_ini_data[ii*64+63-jj*8-:8];
 			end
 	end
 
 	// Generate 32 bit init sequence
 	reg [4:0] ini_addr;
 	always @(posedge clk) begin
-		ini_addr <= ( reset ) ? 0 : ( ini_active ) ? ini_addr + 1 : 0;
+		ini_addr <= ( reset ) ? 5'h0 : ( ini_active ) ? ini_addr + 1 : 0;
 	end
 
 	wire [63:0] nop;
@@ -439,7 +506,7 @@ module mipi_format_lcd (
 			ph <= ( xpos == VID_LINE - 1 ) ? 3'b001 : { ph[1:0], ph[2] };
 			xpos <= ( xpos == VID_LINE - 1 ) ? 9'd0 : xpos + 9'd1;
 			ypos <= ( xpos == VID_LINE - 1 && ypos == VID_VTOTAL - 1 ) ? 11'd0 :
-			        ( xpos == VID_LINE - 1 ) ? ypos + 1 : ypos;
+			        ( xpos == VID_LINE - 1 ) ? ypos + 11'h1 : ypos;
 			frame <= ( frame == 4'd15 ) ? 4'd15 : 
                      ( xpos == VID_LINE - 1 && ypos == VID_VTOTAL - 1 ) ? frame + 4'd1 : frame;
 		end
@@ -456,7 +523,6 @@ module mipi_format_lcd (
 	assign hsync = ( xpos == 0 && vid_en ) ? 1'b1 : 1'b0;
 	assign active = ( vactive && xpos >= VID_HFRONT - VID_LAT && xpos < VID_HBACK + VID_ACTIVE - VID_LAT ) ? 1'b1 : 1'b0;
 					 
-
 	// Register RGB inputs
 	// 2:3 rgb:mipi conversion logic
 	reg [96:0] mreg, sreg;
@@ -473,7 +539,7 @@ module mipi_format_lcd (
 	// Video MIPI words
 	wire [63:0] dsi_vss, dsi_hss, dsi_post_short;
 	wire [63:0] dsi_disp_on, dsi_sequence, dsi_protect;
-	wire [63:0] dsi_pre_vid_0, dsi_pre_vid_1, dsi_post_vid, dsi_bp, dsi_null;
+	wire [63:0] dsi_post_vid, dsi_bp, dsi_null;
 	wire [63:0] dsi_pre_rgb_0, dsi_pre_rgb_1, dsi_post_rgb;
 	wire [127:0] dsi_pre_rgb;
 	
@@ -515,18 +581,18 @@ module mipi_format_lcd (
 				s_vid <= dsi_protect;
 			end else if( vactive ) begin
 				if( xpos == VID_HFRONT - 2 ) begin
-					m_vid <= dsi_pre_vid_0;
-					s_vid <= dsi_pre_vid_0;
+					m_vid <= dsi_pre_rgb_0;
+					s_vid <= dsi_pre_rgb_0;
 				end else if ( xpos == VID_HFRONT - 1 ) begin
-					m_vid <= dsi_pre_vid_1;
-					s_vid <= dsi_pre_vid_1;		
+					m_vid <= dsi_pre_rgb_1;
+					s_vid <= dsi_pre_rgb_1;		
 				end else if ( hactive ) begin
 					m_vid <= m_prgb;
 					s_vid <= s_prgb;
 				end else if( xpos == VID_HBACK + VID_ACTIVE ) begin
-					m_vid[15:0] <= m_crc;
+					m_vid[15:0] <= 0;//m_crc;
 					m_vid[63:16] <= dsi_post_rgb[63:16];
-					s_vid[15:0] <= s_crc;
+					s_vid[15:0] <= 0;//s_crc;
 					s_vid[63:16] <= dsi_post_rgb[63:16];
 				end else begin
 					m_vid <= dsi_bp;
@@ -656,7 +722,7 @@ module test_pattern_lcd (
 		// Video sync input
 		vsync,
 		hsync,
-		active,
+		active, // 3 cycles earliy
 		phase,
 		// RGB Outputs
 		rgb_left,
@@ -676,35 +742,39 @@ module test_pattern_lcd (
 	output wire [4*3*8-1:0] rgb_left, rgb_right; 
 	
 	// Calculate current coordinate
-	reg [10:0] x, y;
-	reg del_active;
+	reg [10:0] x, y, px, py;
+	reg del_active, act;
 	always @(posedge clk) begin
 		del_active <= active;
-		y <= ( vsync ) ? 11'd0 : ( del_active && !active ) ? y + 11'd1 : y;
-		x <= ( hsync ) ? 11'd0 : ( active && |phase[1:0] ) ? x + 11'd1 : x;
+		act <= del_active; 
+		py <= ( vsync ) ? 0 : ( del_active && !active ) ? py + 1 : py; // inc at end of each active row
+		px <= ( hsync ) ? 0 : ( del_active &&  active && |phase[1:0] ) ? px + 4 : px; // inc during active phase 0 and 1, 4 pels per cycle
+		x <= px;
+		y <= py;
 	end
 
 	// calculate 8 RGB output pixels values per cycle 
+    // adds 1 cycle delay
 	// left lane offset 0,1,2,3
 	wire [8:0] xl;
 	assign xl = x[10:2];
-	smpte_test i_left0( clk, {xl,2'd0}, y, rgb_left[ 7: 0], rgb_left[15: 8], rgb_left[23:16] );
-	smpte_test i_left1( clk, {xl,2'd1}, y, rgb_left[31:24], rgb_left[39:32], rgb_left[47:40] );
-	smpte_test i_left2( clk, {xl,2'd2}, y, rgb_left[55:48], rgb_left[63:56], rgb_left[71:64] );
-	smpte_test i_left3( clk, {xl,2'd3}, y, rgb_left[79:72], rgb_left[87:80], rgb_left[95:88] );	
+	smpte_test i_left0( clk, act, {xl,2'd0}, y, rgb_left[ 7: 0], rgb_left[15: 8], rgb_left[23:16] );
+	smpte_test i_left1( clk, act, {xl,2'd1}, y, rgb_left[31:24], rgb_left[39:32], rgb_left[47:40] );
+	smpte_test i_left2( clk, act, {xl,2'd2}, y, rgb_left[55:48], rgb_left[63:56], rgb_left[71:64] );
+	smpte_test i_left3( clk, act, {xl,2'd3}, y, rgb_left[79:72], rgb_left[87:80], rgb_left[95:88] );	
 	// right lane offset 800, 801, 802, 803
 	wire [8:0] xr;
     wire [1:0] dum;
 	assign {xr, dum} = x + (VID_WIDTH/2);
-	smpte_test i_right0( clk, {xl,2'd0}, y, rgb_right[ 7: 0], rgb_right[15: 8], rgb_right[23:16] );
-	smpte_test i_right1( clk, {xl,2'd1}, y, rgb_right[31:24], rgb_right[39:32], rgb_right[47:40] );
-	smpte_test i_right2( clk, {xl,2'd2}, y, rgb_right[55:48], rgb_right[63:56], rgb_right[71:64] );
-	smpte_test i_right3( clk, {xl,2'd3}, y, rgb_right[79:72], rgb_right[87:80], rgb_right[95:88] );
+	smpte_test i_right0( clk, act, {xr,2'd0}, y, rgb_right[ 7: 0], rgb_right[15: 8], rgb_right[23:16] );
+	smpte_test i_right1( clk, act, {xr,2'd1}, y, rgb_right[31:24], rgb_right[39:32], rgb_right[47:40] );
+	smpte_test i_right2( clk, act, {xr,2'd2}, y, rgb_right[55:48], rgb_right[63:56], rgb_right[71:64] );
+	smpte_test i_right3( clk, act, {xr,2'd3}, y, rgb_right[79:72], rgb_right[87:80], rgb_right[95:88] );
 	
 endmodule
 
 // Create a simple test pattern
-module smpte_test(	clk, x,	y,	r,	g, b );
+module smpte_test(	clk, act, x,	y,	r,	g, b );
 	// Image size params
 	parameter VID_HEIGHT 	= 1600;
 	parameter VID_WIDTH		= 1600;
@@ -713,6 +783,7 @@ module smpte_test(	clk, x,	y,	r,	g, b );
 	input wire clk;
 	input wire [10:0] x, y;
 	output wire [7:0] r, g, b;
+	input wire act;
 		// Test pattern colors 	
 	localparam SMPTE_Argent 		= 24'hc0c0c0;
 	localparam SMPTE_Acid_Green 	= 24'hc0c000;
@@ -732,42 +803,44 @@ module smpte_test(	clk, x,	y,	r,	g, b );
 	reg [23:0] rgb;
 
 	always @(posedge clk) begin
-		if( x == 0 || y == 0 || x == VID_HEIGHT-1 || y == VID_WIDTH-1 ) begin // Boarder square
-			rgb = SMPTE_White;
+		if( !act ) begin
+			rgb <= 0;
+		end else if( x == 0 || y == 0 || x == VID_HEIGHT-1 || y == VID_WIDTH-1 ) begin // Boarder square
+			rgb <= SMPTE_White;
 		end else if ( (x == 200 || x == 599 ) && y >= 200 && y < 600 ||
 		              (y == 200 || y == 599 ) && x >= 200 && x < 600 ) begin // centered half size square
-			rgb = SMPTE_White;
+			rgb <= SMPTE_White;
 		end else if ( x == y || x == VID_HEIGHT-y-1 ) begin // diagonal X
-			rgb = SMPTE_White;
+			rgb <= SMPTE_White;
 		end else if ( y <= ((VID_HEIGHT*3)/4)) begin // Upper 7 color bars
 			if( x < ((VID_WIDTH*1)/7)) begin
-				rgb = SMPTE_Argent;
+				rgb <= SMPTE_Argent;
 			end else if( x < ((VID_WIDTH*2)/7)) begin
-				rgb = SMPTE_Acid_Green;
+				rgb <= SMPTE_Acid_Green;
 			end else if( x < ((VID_WIDTH*3)/7)) begin
-				rgb = SMPTE_Turquise_Surf;
+				rgb <= SMPTE_Turquise_Surf;
 			end else if( x < ((VID_WIDTH*4)/7)) begin
-				rgb = SMPTE_Islamic_Green;
+				rgb <= SMPTE_Islamic_Green;
 			end else if( x < ((VID_WIDTH*5)/7)) begin
-				rgb = SMPTE_Deep_Magenta;
+				rgb <= SMPTE_Deep_Magenta;
 			end else if( x < ((VID_WIDTH*6)/7)) begin
-				rgb = SMPTE_UE_Red;
+				rgb <= SMPTE_UE_Red;
 			end else begin
-				rgb = SMPTE_Medium_Blue;
+				rgb <= SMPTE_Medium_Blue;
 			end
 		end else begin // Lower 6 color bars
 			if( x < ((VID_WIDTH*1)/6) ) begin
-				rgb = SMPTE_Oxford_Blue;
+				rgb <= SMPTE_Oxford_Blue;
 			end else if( x < ((VID_WIDTH*2)/6) ) begin
-				rgb = SMPTE_White;
+				rgb <= SMPTE_White;
 			end else if( x < ((VID_WIDTH*3)/6) ) begin
-				rgb = SMPTE_Deep_Violet;
+				rgb <= SMPTE_Deep_Violet;
 			end else if( x < ((VID_WIDTH*4)/6) ) begin
-				rgb = SMPTE_Eerie_Black;
+				rgb <= SMPTE_Eerie_Black;
 			end else if( x < ((VID_WIDTH*5)/6) ) begin
-				rgb = SMPTE_Chineese_Black;
+				rgb <= SMPTE_Chineese_Black;
 			end else begin
-				rgb = SMPTE_Vampire_Black;
+				rgb <= SMPTE_Vampire_Black;
 			end
 		end
 	end
@@ -782,12 +855,12 @@ module hex_font4 (
 		// Video sync input
 		vsync,
 		hsync,
-		active,
+		active, // 3 cycle earliy
 		phase,
 		// Char location
-		char_x,
+		char_x, 
 		char_y,
-		hex_char  // easy to use for hex display
+		hex_char  // easy to use for hex display, 1 cycle early
 	);
 
 	// Declare I/O
@@ -804,6 +877,7 @@ module hex_font4 (
 	reg del_active;
 	always @(posedge clk) begin
 		del_active <= active;
+		// add 1 cycle
 		y <= ( vsync ) ? 11'd0 : ( del_active && !active ) ? y + 11'd1 : y;
 		x <= ( hsync ) ? 11'd0 : ( active && |phase[1:0] ) ? x + 11'd1 : x;
 	end
@@ -835,8 +909,11 @@ module hex_font4 (
 			                             : { hex_char_row[80-ii*5-1], hex_char_row[80-ii*5-1], hex_char_row[80-ii*5-2], hex_char_row[80-ii*5-3] };
 		end
 	end
-	
-	assign hex_char = exp_row;
+
+	reg [63:0] hex_reg;
+	always @(posedge clk)
+		hex_reg <= exp_row;
+	assign hex_char = hex_reg;
 endmodule
 
 module hex_overlay4
@@ -894,11 +971,20 @@ module hex_overlay4
 									   /* in[(LEN-ii)*4-1-:4] == 4'hF )*/ hex_char[15*4+3-:4] ;
 		end
 	end
-	assign out = { |cov3, |cov2, |cov1, |cov0 }; // reduction OR :)
+	reg [3:0] oreg;
+	always @(posedge clk)
+		oreg <= { |cov3, |cov2, |cov1, |cov0 }; // reduction OR :)
+	assign out = oreg;
 	
 endmodule
 
-module commit_overlay( 
+module commit_overlay
+// R is 29 to give a 16 second total period with 62.5 Mhz clk
+// can be shortened for SIM puposed
+#( 
+	parameter R =  29
+)
+( 
 		// system
 		clk,
 		reset,
@@ -908,7 +994,8 @@ module commit_overlay(
 		active,
 		phase,
 		// output
-		out
+		out,
+		blink
 	);
 	
 	
@@ -918,34 +1005,67 @@ module commit_overlay(
 	input wire vsync, hsync, active;
 	input wire [2:0] phase;
 	output wire [3:0] out;
+	output wire blink;
 
 	// Video location
 	// Calculate current coordinate
+	// active is 3 cycles early
 	reg [10:0] x, y;
 	reg del_active;
 	always @(posedge clk) begin
 		del_active <= active;
-		y <= ( vsync ) ? 11'd0 : ( del_active && !active ) ? y + 11'd1 : y;
-		x <= ( hsync ) ? 11'd0 : ( active && |phase[1:0] ) ? x + 11'd1 : x;
-	end
+		// x and y add 1 cycle
+		y <= ( vsync ) ? 0 : ( del_active && !active ) ? y + 1 : y; // 1 Step is 1 line
+		x <= ( hsync ) ? 0 : ( active && |phase[1:0] ) ? x + 1 : x; // 1 step is 4 pels
+	end 
 	
 	// Commit Rom 
 	reg [7:0] commit_rom [63:0]; /* synthesis syn_ramstyle= "block_ram" */
 	initial $readmemb("commit.mem", commit_rom );
 
+	// Window for id, hard coded location
+	// y[10:4] == 7'd80 gives us pel row 80*16 , 
+    // x[10:4] == 7'd1 gives us pel cols 16*4 through 32*4 
+	wire window;
+	assign window = ( y[10:4] == 7'd80 && x[10:4] == 7'd1 ) ? 1'b1 : 1'b0;
+	
+	reg [29:0] bcnt; // 16 sec counter
+	always @(posedge clk)
+		bcnt = bcnt + 1;
+	
 	wire [5:0] raddr;
 	reg [7:0] rdata;
-	assign raddr[2:0] = y[3:1]; // double the height
-	assign raddr[5:3] = x[3:1]; // 2 nibble per row
-	always @(posedge clk) rdata <= commit_rom[ raddr ];
-	//commit_rom i_commit_rom (.Address( raddr ), .OutClock( clk ), .OutClockEn( 1'b1 ), .Reset( reset ), .Q( rdata));
+	assign raddr[5:0] = ( window ) ? { x[3:1], y[3:1] } : // double the height, 2 nibble per row
+						              { bcnt[R-:3], 3'b111 }; // row 7 is binary for the char
+	always @(posedge clk) rdata <= commit_rom[ raddr ]; // read ROM
 	
 	reg del_x0;
-	always @(posedge clk) del_x0 <= x[0];
-	
-	assign out = ( y[10:4] != 7'd98 && 
-	               x[10:4] != 7'd1 ) ? 4'b0000 :
+	reg del_window;
+	reg [3:0] oreg;
+	always @(posedge clk) begin
+		// delay to match rom, it added 2nd cycle
+		del_window <= window;
+		del_x0 <= x[0];
+		//  output is the 3rd cycle
+		oreg <= ( !del_window ) ? 4'b0000 : // outside window
+				 ( y[3:1] == 3'b111 ) ? 4'b0000 : // bottom row contains blink data
 	             ( del_x0 ) ? { rdata[1], {2{rdata[0]}}, 1'b0 } :
 	                          { {2{rdata[4]}}, rdata[3:2] };
+	end
+	assign out = oreg;
   
+	// Blink Output
+	// will blink out Commit id 0: (*-*-----) and 1: (***-----) for 28 bits, 2 bits per sec, then a 2 second blank
+	assign blink = ( bcnt[R-:3] == 3'd7 ) ? 1'b0 : // blank for last digit (4 bits) 2 sec.
+	               ( bcnt[R-5-:3] == 3'd0 ) ? 1'b1 :
+	               ( bcnt[R-5-:3] == 3'd2 ) ? 1'b1 :
+	               ( bcnt[R-5-:3] == 3'd3 ) ? 1'b0 :
+	               ( bcnt[R-5-:3] == 3'd4 ) ? 1'b0 :
+	               ( bcnt[R-5-:3] == 3'd5 ) ? 1'b0 :
+	               ( bcnt[R-5-:3] == 3'd6 ) ? 1'b0 :
+	               ( bcnt[R-5-:3] == 3'd7 ) ? 1'b0 :
+				   ( bcnt[R-3-:2] == 2'd0 ) ? rdata[3] : // MSB first
+				   ( bcnt[R-3-:2] == 2'd1 ) ? rdata[2] :
+				   ( bcnt[R-3-:2] == 2'd2 ) ? rdata[1] :
+				   /*bcnt[R-3-:2]  == 2'd3 )*/ rdata[0] ;
 endmodule

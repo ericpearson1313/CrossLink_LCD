@@ -16,3 +16,4 @@ cp watermark.sh ../CrossLink_LCD/.
 cp impl1/testgen_impl1_lattice.synproj  ../CrossLink_LCD/impl1/.
 cp impl1/testgen_impl1.lpf ../CrossLink_LCD/impl1/.
 cp mipi_dsi_tx/mipi_dsi_tx.v ../CrossLink_LCD/mipi_dsi_tx/.
+cp BoardTestList.txt ../CrossLink_LCD/.

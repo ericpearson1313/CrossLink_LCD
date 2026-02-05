@@ -2,7 +2,7 @@
 -d LIF-MD6000
 -t CKFBGA80
 -s 6
--frequency 200
+-frequency 63
 -optimization_goal Timing
 -bram_utilization 100
 -ramstyle Auto

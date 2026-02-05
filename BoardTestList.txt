@@ -1,0 +1,53 @@
+Board Testlist:
+----------------
+Given a commit id to test on the development board
+git pull/checkout the repo commit
+sh ./watermark.sh
+Lattice Diamond open testgen.lpf
+refresh, map, p&R, and bitstream generate bitfile.
+after a successful fpga load step through the tests below
+recording observations
+
+
+Dev Board Setup:
+------------------------
+Dev boards has 4 LEDs and 2 button, organized as a 2x3
+D2 / D4
+D5 / D3
+K2 / K1
+
+They are assigned as:
+Blink / Test0
+Test1 / Reset
+Key0  / Reset(button)
+
+Also the connector J5 the 2x30 header is assigned as:
+pin27, K5 is an input of LCD_PWM
+pin44, F2 is LCD Reset output.
+pin43, F1 is LCS Power enable output
+
+
+Board Test List:
+------------------
+** Initial bring-up tests do not need the LCD attached **
+
+1-after configuration is complete reset led is off, no blink intentionally (tinies 3usec flicker should not be visible)
+
+2-The blink led (D2) should be double blinking at a 2hz rate of 0:(*-*-----) or 1:(***-----)
+   28 blinks output the git commit id (msb first) followed by a 2 second's off and then repeats. Record the binary stream 
+
+3-the test0,1 leds should be off, (if test1 is high due to pin pullup, jumper K5 to gnd)
+
+4-Both pressing and/or releasing key0 should blink test0 led, 
+
+5-Jumpig the K4 input pin on the dev board (LCD_pwm input?) to logic 1 (3.3v) or logic 0 should be reflected in test1 led
+
+6-pressing and holding Reset button, should cause the Reset LED to stay ON until 100ms after release. Rapidly press and release RIGHT key, should give a 100ms on time minimum.
+
+7-putting a jumper between K4 and F2(lcd_reset) should show low during reset and settle high after the lcd startup sequence.
+
+8-putting a jumper between K4 and F1(lcd_en_pwr) should show low during reset and high as its turned on during the lcd startup
+
+9-Open a terminal on the dev boards uart, the fpga connects the receive to the send with a fixed delay pipeline and should do a loopback echo
+
+

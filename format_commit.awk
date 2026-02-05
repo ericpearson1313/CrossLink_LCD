@@ -1,7 +1,7 @@
 # format_commit.awk - format git commit id for insttion into commit_rom.mem
 # awk used to format git commmit id (stdin) into 64 lines of 8(5) binary bits of a 5x7 font:
 #
-# git rev-parse HEAD | head -c7 | awk -f format_commit.aw > commit.mem
+# git rev-parse HEAD | head -c7 | awk -f format_commit.awk > commit.mem
 #
 
 BEGIN { # read the 7 digit commit id text input
@@ -14,6 +14,7 @@ BEGIN { # read the 7 digit commit id text input
 	row5 = "11001_00100_00100_00001_00001_00001_10001_00100_10001_00001_11111_10001_10000_10001_10000_10000";
 	row6 = "10001_00100_01000_00001_00001_00001_10001_00100_10001_10001_10001_10001_10001_10001_10000_10000";
 	row7 = "01110_01110_11111_11110_00001_11110_01110_00100_01110_01110_10001_11110_01110_11110_11111_10000";
+	row8 = "00000_00001_00010_00011_00100_00101_00110_00111_01000_01001_01010_01011_01100_01101_01110_01111";
 
         # format them for a mif file substiturion
 	for( ii = 1; ii <= 7; ii++ ) {
@@ -42,7 +43,7 @@ BEGIN { # read the 7 digit commit id text input
 		print "000" substr(row5, ofs, 5)
 		print "000" substr(row6, ofs, 5)
 		print "000" substr(row7, ofs, 5)
-		print "00000000"
+		print "000" substr(row8, ofs, 5)
 	}
 	for( ii = 0; ii < 8; ii++ ) {
 		print "00000000"

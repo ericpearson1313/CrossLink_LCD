@@ -42,6 +42,7 @@ module dsi_tb();
 	logic [95:0] left_rgb, right_rgb;
 	logic vsync, hsync, active;
 	logic [2:0] phase;
+	logic [3:0] ovl;
 	mipi_format_lcd i_dut(
 		// System
 		.clk	( clk ),
@@ -71,8 +72,27 @@ module dsi_tb();
 		.phase ( phase[2:0] ),
 		// RGB Inputs
 		.m_rgb	( left_rgb[95:0] ),
-		.s_rgb	( right_rgb[95:0] )
+		.s_rgb	( right_rgb[95:0] | {{24{ovl[3]}},{24{ovl[2]}},{24{ovl[1]}},{24{ovl[0]}}}  )
 	);
+
+    	test_pattern_lcd i_test_pat (
+		// system
+		.clk	( clk ),
+		.reset  ( reset ),
+		// Video sync input
+		.vsync	( vsync ),
+		.hsync	( hsync ),
+		.active ( active ),
+		.phase	( phase ),   
+		// RGB Outputs
+		.rgb_left	( left_rgb[95:0]  ),
+		.rgb_right	( right_rgb[95:0] )
+	);
+
+	wire blink;
+	// speed up blink so it finishes in sime time
+	commit_overlay #(22) i_com_ovl( clk, reset, vsync, hsync, active, phase, ovl, blink); 
+
 	// Run the test
     	initial begin
 		left_rgb = 96'h01234567_89abcdef_76543210;
