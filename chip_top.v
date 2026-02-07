@@ -578,6 +578,10 @@ module mipi_format_lcd (
 	assign s_data = ( ini_active ) ? s_cmd : ( vid_en ) ? s_vid : 0;
 endmodule
 	
+    ////////////////////
+	// MIPI Functions
+    ////////////////////
+
 	// MIPI DSI ECC funciton (9.3)
 	// outputs 32 bits, input
 	function [31:0] ecc; 
@@ -620,6 +624,21 @@ endmodule
 	function [12*8-1:0] crc10; input [10*8-1:0] d; begin crc10 = { d, crc( 5'd10, d ) }; end endfunction
 	function [19*8-1:0] crc17; input [17*8-1:0] d; begin crc17 = { d, crc( 5'd17, d ) }; end endfunction
 
+	function [15:0] crc_round;
+		input d;
+		input [15:0] cin;
+		reg [15:0] round;
+		begin
+			round = { 	cin[0] ^ d, 
+			                cin[15:12],
+							cin[11] ^ cin[0] ^ d,
+							cin[10:5],
+							cin[4] ^ cin[0] ^ d,
+							cin[3:1] };
+		end
+		crc_round = round;
+	endfunction
+
 	function [15:0] crc;
 		input [4:0] len; // will be 1 to 17
 		input [17*8-1:0] din;
@@ -630,12 +649,7 @@ endmodule
 			for( ii = 16; ii >= 0; ii = ii - 1 ) begin // traverse byte in transmit order
 				if( ii < len ) begin // if inside data
 					for( jj = 0; jj < 8; jj = jj + 1 ) begin // little endian bit order
-						sreg[15:0] = { sreg[0] ^ din[ii*8+jj], 
-						                sreg[15:12],
-										sreg[11] ^ sreg[0] ^ din[ii*8+jj],
-										sreg[10:5],
-										sreg[4] ^ sreg[0] ^ din[ii*8+jj],
-										sreg[3:1] };
+						sreg[15:0] = crc_round( din[ii*8+jj], sreg );
 					end
 				end
 			end
@@ -658,12 +672,7 @@ module vid_crc (
 	always @(crc, data) begin
 		sreg[0] = crc;
 		for( ii = 1; ii < 65; ii = ii + 1 ) begin
-			sreg[ii] = { data[ii-1] ^ sreg[ii-1][0],
-			              sreg[ii-1][15:12],
-						  data[ii-1] ^ sreg[ii-1][0] ^ sreg[ii-1][11],
-						  sreg[ii-1][10:5],
-						  data[ii-1] ^ sreg[ii-1][0] ^ sreg[ii-1][4],
-						  sreg[ii-1][3:1] };
+			sreg[ii] = crc_round( data[ii-1], sreg[ii-1] );
 		end
 	end
 	
