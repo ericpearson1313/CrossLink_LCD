@@ -576,6 +576,7 @@ module mipi_format_lcd (
 	// data out to mipi dsi tx blocks
 	assign m_data = ( ini_active ) ? m_cmd : ( vid_en ) ? m_vid : 0;
 	assign s_data = ( ini_active ) ? s_cmd : ( vid_en ) ? s_vid : 0;
+endmodule
 	
 	// MIPI DSI ECC funciton (9.3)
 	// outputs 32 bits, input
@@ -641,7 +642,6 @@ module mipi_format_lcd (
 			crc = { sreg[7:0], sreg[15:8] }; // output is big endian 
 		end
 	endfunction
-endmodule
 
 // Generate a video CRC
 module vid_crc (
@@ -674,6 +674,24 @@ module vid_crc (
 			crc <= sreg[64];
 		end
 	end
+endmodule
+
+// Generate an ECC
+module dsi_ecc(
+	clk, reset, in, out
+	);
+	input reset, clk;
+	input [23:0] in; // bin endian
+	output [31:0] out; // data cat ecc big endian
+	reg [31:0] ecc_reg;
+	always @(posedge clk) begin
+		if( reset ) begin
+			ecc_reg <= 0 ;
+		end else begin
+			ecc_reg <= ecc( in );
+		end
+	end
+	assign out = ecc_reg;
 endmodule
 
 

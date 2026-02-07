@@ -1,6 +1,66 @@
 // Adhoc collection of verilator test benches created during project development
 // customize the run_test to select which _tb to build and run
 
+// test ECC
+module ecc_tb();
+	logic clk;
+	logic reset;
+
+	// Create clock
+	initial begin
+		clk = 0;
+		for( ;; ) begin
+			#(10ns);
+			clk = !clk;
+		end
+	end
+
+	// create reset
+	initial begin
+        $timeformat(-9, 0, "ns", 12); // 1: scale (ns=-9), 2: decimals, 3: suffix, 4: print-field width
+        // configure FST (waveform) dump
+        $dumpfile("ecc.fst");
+        $dumpvars(1,i_dut);
+		reset = 1;
+		for( int ii = 0; ii < 10; ii++ ) begin
+			@(negedge clk);
+		end
+		reset = 0;
+                $display("Reset done");
+		for( int ii = 0; ii < 50000; ii++ ) begin
+			@(negedge clk);
+		end
+                $display("done");
+		$finish();
+	end
+
+	// DUT
+	logic [23:0] din;
+	logic [31:0] ecc_reg;
+	dsi_ecc i_dut (
+		.reset( reset ),
+		.clk( clk ),
+		.in( din ),
+		.out( ecc_reg )
+	);
+
+	initial begin
+		din = 0;
+		while( reset ) @(negedge clk); // wait for reset to finish
+		@(negedge clk);
+
+		// Test case from 9.4A, as big endian!
+		din={ 8'h37, 8'hf0, 8'h01 };
+		$display("Din = %h", din);
+		@(negedge clk);
+		$display("ECC hw 0x%h, should be 0x3F, %s", ecc_reg, ( ecc_reg == { din, 8'h3f } ) ? "PASS":"FAIL" );
+
+		// finish up
+		for( int ii = 0; ii < 10; ii++ ) @(negedge clk);
+		$finish();
+	end
+endmodule
+	
 // Test and view the MIPI startup sequencing
 module dsi_tb();
 	logic clk;
