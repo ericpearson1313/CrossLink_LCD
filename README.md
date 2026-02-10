@@ -96,7 +96,97 @@ The crc is initialized to FFFF at the start of each RGB pixel row (for the given
 		end
 	end
 
-TODO: pipeline to 2 cycles to close timing (everything meets timing otherwise) 
+Well the CRC calc is blocking timing closure, so I tried some hand optimization. I should not be able to optimize combinatorial logic better than the synthesis tools, but worth a try. To do this I used system verilog to write dense verilog code. This SV code (in testbench.sv) does the CRC cacluations but carries around 80 bits for every crc bit of 64 stages. The Xor logic of the CRC cacl is performed on the full 80 bit vector, this way the output is dependant upon the input CRC[15:0] and Data[63:0] that are xor'ed in an odd number of time.
+
+		/////////////////////////////////////////
+		// Build the Constant CRC matrix
+		//logic [64:0][15:0][79:0] S;
+		//logic [63:0][79:0] D
+		// Init D
+		D = 0;
+		for( int ii = 0; ii < 64; ii++ )
+			D[ii][ii+16] = 1'b1;
+		// Init S[0];
+		S = 0;
+		for( int ii = 0; ii < 16; ii++ )
+			S[0][ii][ii] = 1'b1;
+		// Round Calcs
+		for( int ii = 1; ii <= 64; ii++ ) 
+			for( int jj = 0; jj < 16; jj++ ) 
+				S[ii][jj] = ( jj == 15 ) ? ( D[ii-1] ^ S[ii-1][0] ):
+					    ( jj == 10 ) ? ( D[ii-1] ^ S[ii-1][0] ^ S[ii-1][11] ):
+					    ( jj == 3  ) ? ( D[ii-1] ^ S[ii-1][0] ^ S[ii-1][4] ):
+						           S[ii-1][jj+1];
+		// dump dense logic
+		for( int ii = 0; ii < 16; ii++ ) 
+			$display(" crc[%1d] <= ^({data[63:0],crc[15:0]} & 80'h%0h);", ii, S[64][ii] );
+		/////////////////////////////////////////
+
+The verilog code produced uses a reduction xor of the 80 input bits {data[63:0],crc[15]} ANDed with a unique 80bit mask for each output bit. Hopefully the
+synthesis tool will take advantage of this.
+
+	always @(posedge clk) begin
+		if( reset || !en ) begin
+			crc <= 16'hffff;
+		end else begin
+			//crc <= sreg[64];
+			// Optimized 64 bit checksum calc (synth should easily do this!?)
+ 			crc[0] <= ^({data[63:0],crc[15:0]} & 80'h11303471a041b343b343);
+ 			crc[1] <= ^({data[63:0],crc[15:0]} & 80'h226068e3408366876687);
+ 			crc[2] <= ^({data[63:0],crc[15:0]} & 80'h44c0d1c68106cd0fcd0f);
+ 			crc[3] <= ^({data[63:0],crc[15:0]} & 80'h8981a38d020d9a1f9a1f);
+ 			crc[4] <= ^({data[63:0],crc[15:0]} & 80'h233736ba45a877d877d);
+ 			crc[5] <= ^({data[63:0],crc[15:0]} & 80'h466e6d748b50efb0efb);
+ 			crc[6] <= ^({data[63:0],crc[15:0]} & 80'h8cdcdae916a1df61df6);
+ 			crc[7] <= ^({data[63:0],crc[15:0]} & 80'h119b9b5d22d43bed3bed);
+ 			crc[8] <= ^({data[63:0],crc[15:0]} & 80'h233736ba45a877db77db);
+ 			crc[9] <= ^({data[63:0],crc[15:0]} & 80'h466e6d748b50efb6efb6);
+ 			crc[10] <= ^({data[63:0],crc[15:0]} & 80'h8cdcdae916a1df6cdf6c);
+ 			crc[11] <= ^({data[63:0],crc[15:0]} & 80'h88981a38d020d9a0d9a);
+ 			crc[12] <= ^({data[63:0],crc[15:0]} & 80'h111303471a041b341b34);
+ 			crc[13] <= ^({data[63:0],crc[15:0]} & 80'h2226068e340836683668);
+ 			crc[14] <= ^({data[63:0],crc[15:0]} & 80'h444c0d1c68106cd06cd0);
+ 			crc[15] <= ^({data[63:0],crc[15:0]} & 80'h88981a38d020d9a1d9a1);
+		end
+	end
+
+The lattice diamond synthesis tool, using this optimized logic produced logic that was 2x faster and 1/3 the area. I think the tool should have achieved these results on its own without me re-coding it. It does show there is *alot* of area and performance avaialable by moving to better synth tools than the basic diamond ones.
+
+### Mipi Dsi LP11 to HS transition
+The plan is to run the interface in HS mode using BP packets during video blanking.
+During power up and reset the Mipi clock and data lanes are in LP11 stop state.
+The hardware transitions the MIPI interface from LP11 (lower power stop state) to the HS (high speed) a suitable period after reset is done.
+
+This operation is a sequence to first transition the clk from LP to HS, and then all the data lanes form LP to HS. The transitionin follows a standard sequnce for each: {lp11,lp01,lp00,hs0}
+the signal transitions and timing were aligned with the 16ns clock (62.5Mhz) and are described as digital waveforms spanning 40 cycles.
+
+	// first entry is reset state, final entry is running state
+	// Clk lane startup
+	//                    lp11,lp01,lp00,  clk hs00     ,clk start
+	wire [0:39] clpen = 40'b1_1111_1111_000000000000000_0_0000_0000_000000_0;
+	wire [0:39] clpdp = 40'b1_0000_0000_000000000000000_0_0000_0000_000000_0;
+	wire [0:39] clpdn = 40'b1_1111_0000_000000000000000_0_0000_0000_000000_0;
+	wire [0:39] chsen = 40'b0_0000_0000_111111111111111_1_1111_1111_111111_1;
+	wire [0:39] chsgt = 40'b0_0000_0000_000000000000000_1_1111_1111_111111_1; // polarity?
+	// Data Lane startup                         data lp11,lp01,lp00,hs0   ,hs start
+	wire [0:39] dlpen = 40'b1_1111_1111_111111111111111_1_1111_1111_000000_0;
+	wire [0:39] dlpdp = 40'b1_1111_1111_111111111111111_1_0000_0000_000000_0;
+	wire [0:39] dlpdn = 40'b1_1111_1111_111111111111111_1_1111_0000_000000_0;
+	wire [0:39] dhsen = 40'b0_0000_0000_000000000000000_0_0000_0000_111111_1;
+
+a transition counter (start_cnt) is reset to 0 and when enabled counts to 39 and then holds. Muxing the waves drives the D-PHY control signals;
+
+	// Connect CLK lane controls
+	assign clk_txlpen 	= clpen[start_cnt];
+	assign clk_txlpp 	= clpdp[start_cnt];
+	assign clk_txlpn 	= clpdn[start_cnt];
+	assign clk_txhsen 	= chsen[start_cnt];
+	assign clk_txhsgate = chsgt[start_cnt];
+	// Connect Data lane controls
+	assign  txlpen 		= dlpen[start_cnt];
+	assign  txlpp 		= dlpdp[start_cnt]; 
+	assign  txlpn 		= dlpdn[start_cnt]; 
+	assign  txhsen    	= dhsen[start_cnt];
 
 # Debug Logic
 This is the *optional* part of the design. It is practically necessary though, so I tend to put it first in development for any new platform.

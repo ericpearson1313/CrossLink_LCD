@@ -98,6 +98,8 @@ module dsi_tb();
 
 	logic lcd_reset, lcd_pn2ptx, lcd_en_vsp, lcd_en_vsn, lcd_en_vcc;
 	logic d0_txlpen, d0_txlpn, d0_txlpp, d0_txhsen;
+	wire clk_txlpen, clk_txlpn, clk_txlpp;
+	wire clk_txhsen, clk_txhsgate;
 	logic [63:0] a_tx_data, b_tx_data;
 	logic [95:0] left_rgb, right_rgb;
 	logic vsync, hsync, active;
@@ -122,17 +124,22 @@ module dsi_tb();
 		.txlpn	( d0_txlpn ),
 		.txlpp	( d0_txlpp ),
 		.txhsen	( d0_txhsen ),
+		.clk_txhsen	( clk_txhsen ), 
+		.clk_txhsgate	( clk_txhsgate ), 
+		.clk_txlpen	( clk_txlpen ), 
+    		.clk_txlpn 	( clk_txlpn ), 
+		.clk_txlpp	( clk_txlpp ),
 		// Mipi Tx Data
-		.m_data ( a_tx_data[63:0] ),
-		.s_data ( b_tx_data[63:0] ),
+		.l_data ( a_tx_data[63:0] ),
+		.r_data ( b_tx_data[63:0] ),
 		// Video Sync output
 		.vsync ( vsync ),
 		.hsync ( hsync ),
 		.active( active ),
 		.phase ( phase[2:0] ),
 		// RGB Inputs
-		.m_rgb	( left_rgb[95:0] ),
-		.s_rgb	( right_rgb[95:0] | {{24{ovl[3]}},{24{ovl[2]}},{24{ovl[1]}},{24{ovl[0]}}}  )
+		.l_rgb	( left_rgb[95:0] ),
+		.r_rgb	( right_rgb[95:0] | {{24{ovl[3]}},{24{ovl[2]}},{24{ovl[1]}},{24{ovl[0]}}}  )
 	);
 
     	test_pattern_lcd i_test_pat (
@@ -232,6 +239,10 @@ module crc_tb();
 
 	// run the test
 	logic [0:7][7:0] ledata; // readable data from DSI spec Annex B
+	logic [23:0][7:0] test_data;
+	logic [24:0][7:0] expected;
+	logic [64:0][15:0][79:0] S;
+	logic [64:0][79:0] D;
     	initial begin
 		data = 0;
 		enable = 0;
@@ -273,6 +284,36 @@ module crc_tb();
 		$display("test#2: %s", ( crc == 16'h00F0 ) ? "PASS" : "FAIL" );
 		@(negedge clk);
 		$display("crc = 0x%h", crc, );
+
+		// Test 3, line 2176
+		test_data[0] = 8'h00;
+		$display("CRC test: data %d, crc = %x, %s", test_data[0] , crc1( test_data[0] ), ( crc1( test_data[0] ) == { test_data[0], 16'h870F } ) ? "PASS":"FAIL" );
+		test_data[0] = 8'h01;
+		$display("CRC test: data %d, crc = %x, %s", test_data[0] , crc1( test_data[0] ), ( crc1( test_data[0] ) == { test_data[0], 16'h0E1E } ) ? "PASS":"FAIL" );
+
+		/////////////////////////////////////////
+		// Build the Constant CRC matrix
+		//logic [64:0][15:0][79:0] S;
+		//logic [63:0][79:0] D
+		// Init D
+		D = 0;
+		for( int ii = 0; ii < 64; ii++ )
+			D[ii][ii+16] = 1'b1;
+		// Init S[0];
+		S = 0;
+		for( int ii = 0; ii < 16; ii++ )
+			S[0][ii][ii] = 1'b1;
+		// Round Calcs
+		for( int ii = 1; ii <= 64; ii++ ) 
+			for( int jj = 0; jj < 16; jj++ ) 
+				S[ii][jj] = ( jj == 15 ) ? ( D[ii-1] ^ S[ii-1][0] ):
+					    ( jj == 10 ) ? ( D[ii-1] ^ S[ii-1][0] ^ S[ii-1][11] ):
+					    ( jj == 3  ) ? ( D[ii-1] ^ S[ii-1][0] ^ S[ii-1][4] ):
+						           S[ii-1][jj+1];
+		// dump dense logic
+		for( int ii = 0; ii < 16; ii++ ) 
+			$display(" crc[%1d] <= ^({data[63:0],crc[15:0]} & 80'h%0h);", ii, S[64][ii] );
+		/////////////////////////////////////////
 
 		// finish up
 		for( int ii = 0; ii < 10; ii++ ) @(negedge clk);

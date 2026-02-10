@@ -13,14 +13,14 @@ module chip_top (
 	// System control
 	clkin, 
 	// MIPI DSI TX port
-	a_clk_n,
-	a_clk_p,
-	a_data_n, 
-	a_data_p,
-	b_clk_n,
-	b_clk_p,
-	b_data_n, 
-	b_data_p,
+	l_clk_n,
+	l_clk_p,
+	l_data_n, 
+	l_data_p,
+	r_clk_n,
+	r_clk_p,
+	r_data_n, 
+	r_data_p,
 	// LCD Control Lines
 	lcd_en_vcc,
 	lcd_reset,
@@ -53,10 +53,10 @@ module chip_top (
 	output wire lcd_en_vcc, lcd_reset;
 	input wire lcd_pwm;
 	// MIPI DSI Tx
-	inout wire a_clk_n, a_clk_p;
-	inout wire [3:0] a_data_n, a_data_p;
-	inout wire b_clk_n, b_clk_p;
-	inout wire [3:0] b_data_n, b_data_p;
+	inout wire l_clk_n, l_clk_p;
+	inout wire [3:0] l_data_n, l_data_p;
+	inout wire r_clk_n, r_clk_p;
+	inout wire [3:0] r_data_n, r_data_p;
 
 	
 	/////////////////////////
@@ -66,7 +66,7 @@ module chip_top (
 	// 50 hz clkin is pin driven from external 50 Mhz Osc
 	
 	// 62.5 Mhz System clock is the HSbyteclk from the mipi cores.
-	wire clk, clkb; // these should be exaclty in phase, with just jitter (no fifo needed?)
+	wire clk, clkr; // these should be exaclty in phase, with just jitter (no fifo needed?)
 
 	// Reset Strategy
 	//
@@ -134,16 +134,18 @@ module chip_top (
 	// 2x4 MIPI_DSI TX
 	/////////////////////////
 
+	wire clk_txlpen, clk_txlpn, clk_txlpp;
+	wire clk_txhsen, clk_txhsgate;
 	wire d0_txlpen, d0_txlpn, d0_txlpp; 
 	wire d0_txhsen;
-	wire [63:0] a_tx_data, b_tx_data;
+	wire [63:0] l_tx_data, r_tx_data;
 	
-	mipi_dsi_tx i_txa (
+	mipi_dsi_tx i_txl (
 		// Bidir ports
-		.clk_n	( a_clk_n ), 
-		.clk_p	( a_clk_p ), 
-		.data_n	( a_data_n[3:0] ), 
-    	.data_p	( a_data_p[3:0] ), 
+		.clk_n	( l_clk_n ), 
+		.clk_p	( l_clk_p ), 
+		.data_n	( l_data_n[3:0] ), 
+    	.data_p	( l_data_p[3:0] ), 
 		
 		// RX LP Ports
 		.d0_rxlpn	( ), 
@@ -152,17 +154,17 @@ module chip_top (
 		// TX LP ports
 		.d0_txlpen	( d0_txlpen ),
     	.d0_txlpn	( d0_txlpn ), 
+		.d1_txlpn	( d0_txlpn ), 
+		.d2_txlpn	( d0_txlpn ), 
+		.d3_txlpn	( d0_txlpn ), 
 		.d0_txlpp	( d0_txlpp ), 
-		.d1_txlpn	( 1'b0 ), 
-		.d1_txlpp	( 1'b0 ), 
-		.d2_txlpn	( 1'b0 ), 
-		.d2_txlpp	( 1'b0 ), 
-		.d3_txlpn	( 1'b0 ), 
-    	.d3_txlpp	( 1'b0 ), 		
+		.d1_txlpp	( d0_txlpp ), 
+		.d2_txlpp	( d0_txlpp ), 
+    	.d3_txlpp	( d0_txlpp ), 		
 		
 		// TX HS ports
 		.d0_txhsen	( d0_txhsen ), 
-		.txdata	( a_tx_data[63:0] ),	
+		.txdata	( l_tx_data[63:0] ),	
 		.txhsbyteclk( clk ), // user clock
 		
 		// PLL Ports
@@ -172,22 +174,22 @@ module chip_top (
 		.usrstdby	( 1'b0 ), 
 		
 		// HS Clocking
-		.clk_txhsen( 1'b1 ), 
-		.clk_txhsgate( 1'b0 ), 
+		.clk_txhsen		( clk_txhsen ), 
+		.clk_txhsgate	( clk_txhsgate ), // polarity??
 		
 		// LS Clocking
-		.clk_txlpen( 1'b0 ), 
-    	.clk_txlpn( 1'b0 ), 
-		.clk_txlpp( 1'b1 )
+		.clk_txlpen	( clk_txlpen ), 
+    	.clk_txlpn 	( clk_txlpn ), 
+		.clk_txlpp	( clk_txlpp )
 	);
+
 	
-	
-	mipi_dsi_tx i_txb (
+	mipi_dsi_tx i_txr (
 		// Bidir ports
-		.clk_n	( b_clk_n ), 
-		.clk_p	( b_clk_p ), 
-		.data_n	( b_data_n[3:0] ), 
-    	.data_p	( b_data_p[3:0] ), 
+		.clk_n	( r_clk_n ), 
+		.clk_p	( r_clk_p ), 
+		.data_n	( r_data_n[3:0] ), 
+    	.data_p	( r_data_p[3:0] ), 
 		
 		// RX LP Ports
 		.d0_rxlpn	( ), 
@@ -196,18 +198,18 @@ module chip_top (
 		// TX LP ports
 		.d0_txlpen	( d0_txlpen ),
     	.d0_txlpn	( d0_txlpn ), 
+		.d1_txlpn	( d0_txlpn ), 
+		.d2_txlpn	( d0_txlpn ), 
+		.d3_txlpn	( d0_txlpn ), 
 		.d0_txlpp	( d0_txlpp ), 
-		.d1_txlpn	( 1'b0 ), 
-		.d1_txlpp	( 1'b0 ), 
-		.d2_txlpn	( 1'b0 ), 
-		.d2_txlpp	( 1'b0 ), 
-		.d3_txlpn	( 1'b0 ), 
-    	.d3_txlpp	( 1'b0 ), 		
+		.d1_txlpp	( d0_txlpp ), 
+		.d2_txlpp	( d0_txlpp ), 
+    	.d3_txlpp	( d0_txlpp ), 		
 		
 		// TX HS ports
 		.d0_txhsen	( d0_txhsen ), 
-		.txdata	( b_tx_data[63:0] ),
-		.txhsbyteclk( clkb ), // phase locked to clk?
+		.txdata	( r_tx_data[63:0] ),
+		.txhsbyteclk( clkr ), // phase locked to clk?
 		
 		// PLL Ports
 		.refclk		( clkin ), 
@@ -216,13 +218,13 @@ module chip_top (
 		.usrstdby	( 1'b0 ), 
 		
 		// HS Clocking
-		.clk_txhsen( 1'b1 ), 
-		.clk_txhsgate( 1'b0 ), 
+		.clk_txhsen		( clk_txhsen ), 
+		.clk_txhsgate	( clk_txhsgate ), 
 		
 		// LS Clocking
-		.clk_txlpen( 1'b0 ), 
-    	.clk_txlpn( 1'b0 ), 
-		.clk_txlpp( 1'b1 )
+		.clk_txlpen	( clk_txlpen ), 
+    	.clk_txlpn 	( clk_txlpn ), 
+		.clk_txlpp	( clk_txlpp )
 	);
 	
 	///////////////////////////////
@@ -252,17 +254,22 @@ module chip_top (
 		.txlpn	( d0_txlpn ),
 		.txlpp	( d0_txlpp ),
 		.txhsen	( d0_txhsen ),
+		.clk_txhsen		( clk_txhsen ), 
+		.clk_txhsgate	( clk_txhsgate ), 
+		.clk_txlpen		( clk_txlpen ), 
+    	.clk_txlpn 		( clk_txlpn ), 
+		.clk_txlpp		( clk_txlpp ),
 		// Mipi Tx Data
-		.m_data ( a_tx_data[63:0] ),
-		.s_data ( b_tx_data[63:0] ),
+		.l_data ( l_tx_data[63:0] ),
+		.r_data ( r_tx_data[63:0] ),
 		// Video Sync output
 		.vsync ( vsync ),
 		.hsync ( hsync ),
 		.active( active ),
 		.phase ( phase[2:0] ),
 		// RGB Inputs
-		.m_rgb	( left_rgb[95:0] ),
-		.s_rgb	( right_rgb[95:0] | {{24{ovl[3]}},{24{ovl[2]}},{24{ovl[1]}},{24{ovl[0]}}} )	// right has overlay	
+		.l_rgb	( left_rgb[95:0] ),
+		.r_rgb	( right_rgb[95:0] | {{24{ovl[3]}},{24{ovl[2]}},{24{ovl[1]}},{24{ovl[0]}}} )	// right has overlay	
 	); 
 	
 	///////////////////////////////
@@ -346,17 +353,22 @@ module mipi_format_lcd (
 		txlpn,
 		txlpp,
 		txhsen,
+		clk_txhsen,
+		clk_txhsgate,
+		clk_txlpen,
+    	clk_txlpn,
+		clk_txlpp,
 		// Mipi Tx Data
-		m_data,
-		s_data,
+		l_data,
+		r_data,
 		// Video Sync output
 		vsync,
 		hsync,
 		active,
 		phase,
 		// RGB Inputs
-		m_rgb,
-		s_rgb
+		l_rgb,
+		r_rgb
 	);
 
 	// Video format parameters, derived from LCD datasheet
@@ -379,10 +391,12 @@ module mipi_format_lcd (
 	output wire lcd_reset, lcd_pn2ptx;
 	output wire lcd_en_vsp, lcd_en_vsn, lcd_en_vcc;
 	output wire txlpen,	txlpn, txlpp, txhsen;
+	output wire clk_txhsen,	clk_txhsgate, clk_txlpen, clk_txlpn, clk_txlpp;
 	output wire vsync, hsync, active;
 	output wire [2:0] phase; 
-	input wire [4*3*8-1:0] m_rgb, s_rgb; 
-	output wire [63:0] m_data, s_data; 
+	input wire [4*3*8-1:0] l_rgb, r_rgb; 
+	output wire [63:0] l_data, r_data; 
+
 
 	// 1 sec Initialization counter at 62.5 Mhz
 	localparam MSEC =  62500; // 1 ms
@@ -391,31 +405,69 @@ module mipi_format_lcd (
 		init_count <= ( reset ) ? 26'h0 : ( init_count == 1000*MSEC ) ? 1000*MSEC : init_count + 1;
 
 	// Startup Sequence 
-	wire ini_active, vid_en;
+	wire hs_enable, ini_active, vid_en;
 	assign  lcd_en_vcc 		= ( init_count > 1*MSEC ) ? 1'b1 : 1'b0;
 	assign  lcd_en_vsp 		= ( init_count > 2*MSEC ) ? 1'b1 : 1'b0;
 	assign  lcd_en_vsn 		= ( init_count > 3*MSEC ) ? 1'b1 : 1'b0;
 	assign  lcd_reset 	    = ( init_count > 6*MSEC ) ? 1'b1 : 1'b0;
-	assign  txlpp 			= 1'b1; 
-	assign  txlpn 			= 1'b1; 
-	assign  txlpen 			= ( init_count > 3*MSEC && init_count < 26*MSEC ) ? 1'b1 : 1'b0;
-	assign  txhsen          = ( init_count >= 26*MSEC ) ? 1'b1 : 1'b0;
-	assign  ini_active		= ( init_count >= 26*MSEC && init_count < 26*MSEC + 32 ) ? 1'b1: 1'b0;
-	assign  vid_en    		= ( init_count >= 26*MSEC + 32 ) ? 1'b1: 1'b0;
+	assign	hs_enable 		= ( init_count > 26*MSEC ) ? 1'b1 : 1'b0; // Transition to HS mode
+	assign  ini_active		= ( init_count > 26*MSEC + 40 ) ? 1'b1: 1'b0; // Send lcd init seq
+	assign  vid_en    		= ( init_count > 26*MSEC + 40+32 ) ? 1'b1: 1'b0; // start video
+
+	// first entry is reset state, final entry is runningstate
+	// Clk lane startup
+	//                    lp11,lp01,lp00,  clk hs00     ,clk start
+	wire [0:39] clpen = 40'b1_1111_1111_000000000000000_0_0000_0000_000000_0;
+	wire [0:39] clpdp = 40'b1_0000_0000_000000000000000_0_0000_0000_000000_0;
+	wire [0:39] clpdn = 40'b1_1111_0000_000000000000000_0_0000_0000_000000_0;
+	wire [0:39] chsen = 40'b0_0000_0000_111111111111111_1_1111_1111_111111_1;
+	wire [0:39] chsgt = 40'b0_0000_0000_000000000000000_1_1111_1111_111111_1;
+	// Data Lane startup                         data lp11,lp01,lp00,hs0   ,hs start
+	wire [0:39] dlpen = 40'b1_1111_1111_111111111111111_1_1111_1111_000000_0;
+	wire [0:39] dlpdp = 40'b1_1111_1111_111111111111111_1_0000_0000_000000_0;
+	wire [0:39] dlpdn = 40'b1_1111_1111_111111111111111_1_1111_0000_000000_0;
+	wire [0:39] dhsen = 40'b0_0000_0000_000000000000000_0_0000_0000_111111_1;
+
+
+	// LP11 to MS transition takes place over 40 cycles
+	reg [4:0] start_cnt;
+	always @(posedge clk)
+		start_cnt <= ( reset ) ? 0 : ( start_cnt == 39 ) ? 39 : ( hs_enable ) ? start_cnt + 1 : start_cnt;
+
+	// Connect CLK lane controls
+	assign clk_txlpen 	= clpen[start_cnt];
+	assign clk_txlpp 	= clpdp[start_cnt];
+	assign clk_txlpn 	= clpdn[start_cnt];
+	assign clk_txhsen 	= chsen[start_cnt];
+	assign clk_txhsgate = chsgt[start_cnt];
+	// Connect Data lane controls
+	assign  txlpen 		= dlpen[start_cnt];
+	assign  txlpp 		= dlpdp[start_cnt]; 
+	assign  txlpn 		= dlpdn[start_cnt]; 
+	assign  txhsen    	= dhsen[start_cnt];
 
 	
 	// constant array of init data size 32wx64b, to be folded into lut
 	function [2047:0] ini_data;
 		input right;
 		ini_data = {
+		// 1st 64 bit word completes the LP to HS transition
+		// continue zero's to align
+		{4{8'h00}}, 
+		// a single synch 00011101 byte down each of 4 lanes
+		{4{8'hB8}},
+		
+		/////////////////////////////////////////////
+		// Custom LCD initialization, up to 30 words 
+		/////////////////////////////////////////////
 		// MFG Commands 
 		// <redacted>
 	
 		// Alignment NOP to get to 64b boundary
 	    // Crc lens: 2,2,10,5,5,9,2,17,2,8,6,2,3,2,2,2, needs 9 bytes(crc3) to align at 23 words
-		ecc( { 8'h09, 8'h03, 8'h00} ), crc3( {3{8'h00}} ),
+		ecc( { 8'h09, 8'h04, 8'h00} ), crc3( {4{8'h00}} ),
 
-		// fill to end of 32 words / future expansion
+		// Padd to allocated 30 Init words / future expansion
 		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} ), // 64b word
 		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} ), // 64b word
 		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} ), // 64b word
@@ -423,8 +475,16 @@ module mipi_format_lcd (
 		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} ), // 64b word
 		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} ), // 64b word
 		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} ), // 64b word
-		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} ), // 64b word
-		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} )  // 64b word
+		// END of 30 iniots  words
+		/////////////////////////////////////////////
+
+		/////////////////////////////////////////////
+		// last init word is display-on, sleep off 
+		/////////////////////////////////////////////
+	
+		ecc( { 8'h05, 8'h29, 8'h00 } ), // Set Display on
+		ecc( { 8'h05, 8'h11, 8'h00 } )  // Exit sleep mode, MUST be immediatly followed by VSYNC
+
 		// END of 32 Words
 		};
 	endfunction
@@ -432,28 +492,28 @@ module mipi_format_lcd (
 	wire [2047:0] l_ini_data, r_ini_data;
 	assign l_ini_data = ini_data( 0 );
 	assign r_ini_data = ini_data( 1 );
-	reg [63:0] m_cmd_rom [0:31]; // master (left) in little endian
-	reg [63:0] s_cmd_rom [0:31]; // subordinate (right) in little endian
+	reg [63:0] l_cmd_rom [0:31]; // master (left) in little endian
+	reg [63:0] r_cmd_rom [0:31]; // subordinate (right) in little endian
 	integer ii, jj;
 	always @(l_ini_data, r_ini_data) begin
 		for( ii = 0; ii < 32; ii = ii + 1 )
 			for( jj = 0; jj < 8; jj = jj + 1 ) begin
-				m_cmd_rom[31-ii][jj*8+7-:8] = l_ini_data[ii*64+63-jj*8-:8];
-				s_cmd_rom[31-ii][jj*8+7-:8] = r_ini_data[ii*64+63-jj*8-:8];
+				l_cmd_rom[31-ii][jj*8+7-:8] = l_ini_data[ii*64+63-jj*8-:8];
+				r_cmd_rom[31-ii][jj*8+7-:8] = r_ini_data[ii*64+63-jj*8-:8];
 			end
 	end
 
 	// Generate 32 bit init sequence
 	reg [4:0] ini_addr;
 	always @(posedge clk) begin
-		ini_addr <= ( reset ) ? 5'h0 : ( ini_active ) ? ini_addr + 1 : 0;
+		ini_addr <= ( reset ) ? 5'h0 : (ini_addr == 31) ? 31 : ( ini_active ) ? ini_addr + 1 : 0;
 	end
 
 	wire [63:0] nop;
 	assign nop = swap8( { ecc( { 8'h09, 8'h02, 8'h00} ), crc4( {2{8'h00}} ) } );
-	wire [63:0] m_cmd, s_cmd;
-	assign m_cmd = ( ini_active ) ? m_cmd_rom[ini_addr] : nop;
-	assign s_cmd = ( ini_active ) ? s_cmd_rom[ini_addr] : nop;
+	wire [63:0] l_cmd, r_cmd;
+	assign l_cmd = l_cmd_rom[ini_addr];
+	assign r_cmd = r_cmd_rom[ini_addr];
 
 
 	// Video Timing Geneator
@@ -490,17 +550,17 @@ module mipi_format_lcd (
 					 
 	// Register RGB inputs
 	// 2:3 rgb:mipi conversion logic
-	reg [96:0] mreg, sreg;
+	reg [96:0] lreg, rreg;
 	always @(posedge clk) begin
-		mreg <= m_rgb;
-		sreg <= s_rgb;
+		lreg <= l_rgb;
+		rreg <= r_rgb;
 	end
 	
 	// Pack RGB inputs into mipi words
 	// first word of RGB data arrives aligned with h_active, whith data on ph0, ph1
-	wire [63:0] m_prgb, s_prgb;
-	assign m_prgb[63:0] = ( ph[0] ) ? m_rgb[63:0] : ( ph[1] ) ? { m_rgb[31:0], mreg[95:64] } : mreg[95:32];
-	assign s_prgb[63:0] = ( ph[0] ) ? s_rgb[63:0] : ( ph[1] ) ? { s_rgb[31:0], sreg[95:64] } : sreg[95:32];
+	wire [63:0] l_prgb, r_prgb;
+	assign l_prgb[63:0] = ( ph[0] ) ? l_rgb[63:0] : ( ph[1] ) ? { l_rgb[31:0], rreg[95:64] } : lreg[95:32];
+	assign r_prgb[63:0] = ( ph[0] ) ? r_rgb[63:0] : ( ph[1] ) ? { r_rgb[31:0], lreg[95:64] } : rreg[95:32];
 	// Video MIPI words
 	wire [63:0] dsi_vss, dsi_hss, dsi_post_short;
 	wire [63:0] dsi_disp_on, dsi_sequence, dsi_protect;
@@ -517,66 +577,64 @@ module mipi_format_lcd (
 	assign dsi_pre_rgb_0	= swap8( dsi_pre_rgb[127:64] );
 	assign dsi_pre_rgb_1	= swap8( dsi_pre_rgb[63:0] );
 	assign dsi_post_rgb		= swap8( { 16'h0000, ecc( { 8'h19, 8'h00, 8'h00 } ), 16'hffff } );
-	assign dsi_disp_on		= swap8( { ecc( { 8'h05, 8'h29, 8'h00 } ), ecc( { 8'h05, 8'h11, 8'h00 } ) } );
 	assign dsi_sequence		= swap8( { ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hD6, 8'h80 } ) } );
 	assign dsi_protect		= swap8( { ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hB0, 8'h03 } ) } );
 
 	// Calc CRC (TODO: set to 16'h0000 and see if it works (saves 15% of chip area)
-	wire [15:0] m_crc, s_crc;
-	vid_crc i_m_crc( .reset(reset), .clk(clk), .en( hactive & vactive ), .data( m_prgb ), .crc( m_crc ) );
-	vid_crc i_s_crc( .reset(reset), .clk(clk), .en( hactive & vactive ), .data( s_prgb ), .crc( s_crc ) );	
+	wire [15:0] l_crc, r_crc;
+	vid_crc i_l_crc( .reset(reset), .clk(clk), .en( hactive & vactive ), .data( l_prgb ), .crc( l_crc ) );
+	vid_crc i_r_crc( .reset(reset), .clk(clk), .en( hactive & vactive ), .data( r_prgb ), .crc( r_crc ) );	
 	// Build Video Frame data
-	reg [63:0] m_vid, s_vid;
+	reg [63:0] l_vid, r_vid;
 	always @(posedge clk) begin
 		if( vid_en ) begin
 			if( xpos == 0 ) begin
-				m_vid <= ( ypos == 0 ) ? dsi_vss : dsi_hss;
-				s_vid <= ( ypos == 0 ) ? dsi_vss : dsi_hss;
+				l_vid <= ( ypos == 0 ) ? dsi_vss : dsi_hss;
+				r_vid <= ( ypos == 0 ) ? dsi_vss : dsi_hss;
 			end else if( xpos == 1 ) begin
-				m_vid <= dsi_post_short;
-				s_vid <= dsi_post_short;
-			end else if( frame == 0 && ypos == 0 && xpos == 8 ) begin
-				m_vid <= dsi_disp_on;
-				s_vid <= dsi_disp_on;
+				l_vid <= dsi_post_short;
+				r_vid <= dsi_post_short;
 			end else if( frame == 7 && ypos == 0 && xpos == 8 ) begin
-				m_vid <= dsi_sequence;
-				s_vid <= dsi_sequence;
+				l_vid <= dsi_sequence;
+				r_vid <= dsi_sequence;
 			end else if( frame == 7 && ypos == 0 && xpos == 8+1 ) begin
-				m_vid <= dsi_protect;
-				s_vid <= dsi_protect;
+				l_vid <= dsi_protect;
+				r_vid <= dsi_protect;
 			end else if( vactive ) begin
 				if( xpos == VID_HFRONT - 2 ) begin
-					m_vid <= dsi_pre_rgb_0;
-					s_vid <= dsi_pre_rgb_0;
+					l_vid <= dsi_pre_rgb_0;
+					r_vid <= dsi_pre_rgb_0;
 				end else if ( xpos == VID_HFRONT - 1 ) begin
-					m_vid <= dsi_pre_rgb_1;
-					s_vid <= dsi_pre_rgb_1;		
+					l_vid <= dsi_pre_rgb_1;
+					r_vid <= dsi_pre_rgb_1;		
 				end else if ( hactive ) begin
-					m_vid <= m_prgb;
-					s_vid <= s_prgb;
+					l_vid <= l_prgb;
+					r_vid <= r_prgb;
 				end else if( xpos == VID_HBACK + VID_ACTIVE ) begin
-					m_vid[15:0] <= 0;//m_crc;
-					m_vid[63:16] <= dsi_post_rgb[63:16];
-					s_vid[15:0] <= 0;//s_crc;
-					s_vid[63:16] <= dsi_post_rgb[63:16];
+					l_vid[15:0] <= l_crc;
+					l_vid[63:16] <= dsi_post_rgb[63:16];
+					r_vid[15:0] <= r_crc;
+					r_vid[63:16] <= dsi_post_rgb[63:16];
 				end else begin
-					m_vid <= dsi_bp;
-					s_vid <= dsi_bp;
+					l_vid <= dsi_bp;
+					r_vid <= dsi_bp;
 				end
 			end else begin
-					m_vid <= dsi_bp;
-					s_vid <= dsi_bp;
+					l_vid <= dsi_bp;
+					r_vid <= dsi_bp;
 			end
 		end else begin
-			m_vid <= dsi_null;
-			s_vid <= dsi_null;
+			l_vid <= dsi_null;
+			r_vid <= dsi_null;
 		end
 	end
 	
 	// data out to mipi dsi tx blocks
-	assign m_data = ( ini_active ) ? m_cmd : ( vid_en ) ? m_vid : 0;
-	assign s_data = ( ini_active ) ? s_cmd : ( vid_en ) ? s_vid : 0;
+	assign l_data = ( vid_en ) ? l_vid : ( ini_active ) ? l_cmd : 0;
+	assign r_data = ( vid_en ) ? r_vid : ( ini_active ) ? r_cmd : 0;
+`ifdef SIM
 endmodule
+`endif
 	
     ////////////////////
 	// MIPI Functions
@@ -627,18 +685,16 @@ endmodule
 	function [15:0] crc_round;
 		input d;
 		input [15:0] cin;
-		reg [15:0] round;
 		begin
-			round = { 	cin[0] ^ d, 
+			crc_round = { 	cin[0] ^ d, 
 			                cin[15:12],
 							cin[11] ^ cin[0] ^ d,
 							cin[10:5],
 							cin[4] ^ cin[0] ^ d,
 							cin[3:1] };
 		end
-		crc_round = round;
 	endfunction
-
+	
 	function [15:0] crc;
 		input [4:0] len; // will be 1 to 17
 		input [17*8-1:0] din;
@@ -656,6 +712,11 @@ endmodule
 			crc = { sreg[7:0], sreg[15:8] }; // output is big endian 
 		end
 	endfunction
+
+`ifndef SIM
+endmodule
+`endif
+
 
 // Generate a video CRC
 module vid_crc (
@@ -680,12 +741,45 @@ module vid_crc (
 		if( reset || !en ) begin
 			crc <= 16'hffff;
 		end else begin
-			crc <= sreg[64];
+			//crc <= sreg[64];
+			// Optimized 64 bit checksum calc (synth should easily do this!?)
+ 			crc[0] <= ^({data[63:0],crc[15:0]} & 80'h11303471a041b343b343);
+ 			crc[1] <= ^({data[63:0],crc[15:0]} & 80'h226068e3408366876687);
+ 			crc[2] <= ^({data[63:0],crc[15:0]} & 80'h44c0d1c68106cd0fcd0f);
+ 			crc[3] <= ^({data[63:0],crc[15:0]} & 80'h8981a38d020d9a1f9a1f);
+ 			crc[4] <= ^({data[63:0],crc[15:0]} & 80'h233736ba45a877d877d);
+ 			crc[5] <= ^({data[63:0],crc[15:0]} & 80'h466e6d748b50efb0efb);
+ 			crc[6] <= ^({data[63:0],crc[15:0]} & 80'h8cdcdae916a1df61df6);
+ 			crc[7] <= ^({data[63:0],crc[15:0]} & 80'h119b9b5d22d43bed3bed);
+ 			crc[8] <= ^({data[63:0],crc[15:0]} & 80'h233736ba45a877db77db);
+ 			crc[9] <= ^({data[63:0],crc[15:0]} & 80'h466e6d748b50efb6efb6);
+ 			crc[10] <= ^({data[63:0],crc[15:0]} & 80'h8cdcdae916a1df6cdf6c);
+ 			crc[11] <= ^({data[63:0],crc[15:0]} & 80'h88981a38d020d9a0d9a);
+ 			crc[12] <= ^({data[63:0],crc[15:0]} & 80'h111303471a041b341b34);
+ 			crc[13] <= ^({data[63:0],crc[15:0]} & 80'h2226068e340836683668);
+ 			crc[14] <= ^({data[63:0],crc[15:0]} & 80'h444c0d1c68106cd06cd0);
+ 			crc[15] <= ^({data[63:0],crc[15:0]} & 80'h88981a38d020d9a1d9a1);
 		end
 	end
+`ifndef SIM
+// un-neccary replication due to verilog's lack of global functions
+	function [15:0] crc_round;
+		input d;
+		input [15:0] cin;
+		begin
+			crc_round = { 	cin[0] ^ d, 
+			                cin[15:12],
+							cin[11] ^ cin[0] ^ d,
+							cin[10:5],
+							cin[4] ^ cin[0] ^ d,
+							cin[3:1] };
+		end
+	endfunction
+`endif
 endmodule
 
 // Generate an ECC
+`ifdef SIM
 module dsi_ecc(
 	clk, reset, in, out
 	);
@@ -702,7 +796,7 @@ module dsi_ecc(
 	end
 	assign out = ecc_reg;
 endmodule
-
+`endif
 
 // A test pattern generator
 // 1600x1600 RGB, with L/R outputs (800wide),
