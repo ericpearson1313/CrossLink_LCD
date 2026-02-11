@@ -79,7 +79,7 @@ module dsi_tb();
 	initial begin
         $timeformat(-9, 0, "ns", 12); // 1: scale (ns=-9), 2: decimals, 3: suffix, 4: print-field width
         // configure FST (waveform) dump
-        $dumpfile("crc.fst");
+        $dumpfile("dsi.fst");
         $dumpvars(1,i_dut);
 		reset = 1;
 		for( int ii = 0; ii < 10; ii++ ) begin

@@ -411,8 +411,8 @@ module mipi_format_lcd (
 	assign  lcd_en_vsn 		= ( init_count > 3*MSEC ) ? 1'b1 : 1'b0;
 	assign  lcd_reset 	    = ( init_count > 6*MSEC ) ? 1'b1 : 1'b0;
 	assign	hs_enable 		= ( init_count > 26*MSEC ) ? 1'b1 : 1'b0; // Transition to HS mode
-	assign  ini_active		= ( init_count > 26*MSEC + 40 ) ? 1'b1: 1'b0; // Send lcd init seq
-	assign  vid_en    		= ( init_count > 26*MSEC + 40+32 ) ? 1'b1: 1'b0; // start video
+	assign  ini_active		= ( init_count > 26*MSEC + 39 ) ? 1'b1: 1'b0; // Send lcd init seq
+	assign  vid_en    		= ( init_count > 26*MSEC + 39+31 ) ? 1'b1: 1'b0; // start video
 
 	// first entry is reset state, final entry is runningstate
 	// Clk lane startup
@@ -430,9 +430,9 @@ module mipi_format_lcd (
 
 
 	// LP11 to MS transition takes place over 40 cycles
-	reg [4:0] start_cnt;
+	reg [5:0] start_cnt;
 	always @(posedge clk)
-		start_cnt <= ( reset ) ? 0 : ( start_cnt == 39 ) ? 39 : ( hs_enable ) ? start_cnt + 1 : start_cnt;
+		start_cnt <= ( reset ) ? 0 : ( start_cnt == 39 ) ? 39 : ( hs_enable ) ? start_cnt + 1 : 0;
 
 	// Connect CLK lane controls
 	assign clk_txlpen 	= clpen[start_cnt];
@@ -462,10 +462,9 @@ module mipi_format_lcd (
 		/////////////////////////////////////////////
 		// MFG Commands 
 		// <redacted>
-	
 		// Alignment NOP to get to 64b boundary
 	    // Crc lens: 2,2,10,5,5,9,2,17,2,8,6,2,3,2,2,2, needs 9 bytes(crc3) to align at 23 words
-		ecc( { 8'h09, 8'h04, 8'h00} ), crc3( {4{8'h00}} ),
+		ecc( { 8'h09, 8'h04, 8'h00} ), crc4( {4{8'h00}} ),
 
 		// Padd to allocated 30 Init words / future expansion
 		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} ), // 64b word
@@ -630,8 +629,10 @@ module mipi_format_lcd (
 	end
 	
 	// data out to mipi dsi tx blocks
-	assign l_data = ( vid_en ) ? l_vid : ( ini_active ) ? l_cmd : 0;
-	assign r_data = ( vid_en ) ? r_vid : ( ini_active ) ? r_cmd : 0;
+	reg vid_en_d;
+	always @(posedge clk) vid_en_d <= vid_en;
+	assign l_data = ( vid_en_d ) ? l_vid : ( ini_active ) ? l_cmd : 0;
+	assign r_data = ( vid_en_d ) ? r_vid : ( ini_active ) ? r_cmd : 0;
 `ifdef SIM
 endmodule
 `endif

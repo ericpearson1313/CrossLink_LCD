@@ -9,6 +9,9 @@
         <Source name="mipi_dsi_tx/mipi_dsi_tx.v" type="Verilog" type_short="Verilog">
             <Options/>
         </Source>
+        <Source name="testgen.ldc" type="LSE Design Constraints File" type_short="LDC">
+            <Options/>
+        </Source>
         <Source name="testgen.lpf" type="Logic Preference" type_short="LPF">
             <Options/>
         </Source>

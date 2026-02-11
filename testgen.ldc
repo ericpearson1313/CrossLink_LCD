@@ -7,7 +7,8 @@
 # for assigning design logic to physical resources) for back-end flow.
 ################################################
 
-create_generated_clock -source clkin -name clkin [ get_nets { clkin } ]
+create_clock -period 20.000000 -name clkin [ get_nets { clkin } ]
+create_clock -period 16.000000 -name clk [ get_nets { clk } ]
 
 ################################################
 # This section describes the HDL Attributes that are supported
