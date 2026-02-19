@@ -188,6 +188,27 @@ a transition counter (start_cnt) is reset to 0 and when enabled counts to 39 and
 	assign  txlpn 		= dlpdn[start_cnt]; 
 	assign  txhsen    	= dhsen[start_cnt];
 
+### Mipi D-Phy clocking
+
+The two Mipi DPhy blocks each generate their own clocks via internal PLLs, including the byteclock used for data input to the respective DPhy. There does not appear to be a way to guarantee edge alignment of the byteclocks for two DPhys. I didn't want to 'hope' they were aligned due to consistant fpga startup. So the design needs a clock domain crossing somewhere.
+
+Each of the mipi 1x4 lane interfaces must be fully compliant on their own. For this reason I maintained independant control logic for each. The controllers themselves will be brought out of reset at the same approxiate time, and will overall stay aligned as their PLLs are locked to the same reference clock, but may jitter and wiggle indpendantly. 
+
+A clock domain crossing is required if the origin data is on a single clock. The origin clock could be one of the lane clocks, with only a single domain crossing needed. However another, independant, clock could be chosen for system design advantages. If buffering at the system level, the clock domain crossing(s) can be integrated there, allowing each Dphy to run in isolation.
+
+### RGB Left/Right Splitting
+
+If a full frame source is used as the origninating RGB for display, buffering is requried to split the data into Left-Right lanes for display with 2x4 mipi lanes.
+At minimum the left data must be delayed by 1/2 row to align it with the right data. However since the transmission speed is such that a single raster cannot exist at the slower data rate as the mipi (eg 2*4.8us > 6.24us), unless exactly 2x faster and fully aligned with 1 lane, futher buffering is required to ensure that the mipi data is available when required for transmission. 
+
+![LCD_Split](mipi_split.png "Simulation timing diagram of L/R split")
+
+For development time a simple double buffering approach can provide advantages development time, robustness, source clocking flexibiiyt, row alignment timing, and can integrate the clock domains crossing the each independant hard mipi cores. Each of the left and right lanes are double buffered. Read/write row/col counters are reset on vsync and hsync and count with active rows. The LSBs of the row counter are used to index the ping-pong buffers for each line to read and write. Write is done a row ahead avoiding r/w collisions. This adds 1 scaline (6.4usec) of latency to our system.
+
+The source video clock in this was selected to be the minimum easily generated and allowing tranfering 1 row of data in the scanline time, while relaxing timing needed for test pattern generation.
+The shown 6usec utillzed over 95% of the 6.24usec scaline time. This was accomplished with a 15ns period clock (66Mhz) tranfering four (4) rgb pels per cycle.
+A higher multiple (266Mhz) is also available to be used if a single RGB per cycle source were needed.
+
 # Debug Logic
 This is the *optional* part of the design. It is practically necessary though, so I tend to put it first in development for any new platform.
 

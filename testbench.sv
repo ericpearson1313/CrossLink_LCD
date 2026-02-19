@@ -70,8 +70,31 @@ module dsi_tb();
 	initial begin
 		clk = 0;
 		for( ;; ) begin
-			#(10ns);
+			#(8ns);
 			clk = !clk;
+		end
+	end
+
+	// create 62.5 Mhz (shifted, right lane)
+	logic rclk;
+	initial begin
+		rclk = 0;
+		#(5ns)
+		for(;;) begin
+			#(8ns)
+			rclk = !rclk;
+		end
+	end
+
+	// create 66.66 Mhz
+	logic pclk;
+	initial begin
+		pclk = 0;
+		for(;;) begin
+			#(8ns)
+			pclk = !pclk;
+			#(7ns)
+			pclk = !pclk;
 		end
 	end
 
@@ -81,6 +104,8 @@ module dsi_tb();
         // configure FST (waveform) dump
         $dumpfile("dsi.fst");
         $dumpvars(1,i_dut);
+        $dumpvars(1,i_dut1);
+        $dumpvars(1,i_dut2);
 		reset = 1;
 		for( int ii = 0; ii < 10; ii++ ) begin
 			@(negedge clk);
@@ -96,23 +121,20 @@ module dsi_tb();
 
 	// instantiate DUT
 
+	// Left Lane
 	logic lcd_reset, lcd_pn2ptx, lcd_en_vsp, lcd_en_vsn, lcd_en_vcc;
-	logic d0_txlpen, d0_txlpn, d0_txlpp, d0_txhsen;
-	wire clk_txlpen, clk_txlpn, clk_txlpp;
-	wire clk_txhsen, clk_txhsgate;
-	logic [63:0] a_tx_data, b_tx_data;
-	logic [95:0] left_rgb, right_rgb;
-	logic vsync, hsync, active;
-	logic [2:0] phase;
+	logic l_txlpen, l_txlpn, l_txlpp, l_txhsen;
+	wire l_ctxlpen, l_ctxlpn, l_ctxlpp, l_ctxhsen, l_ctxhsgate;
+	logic [63:0] l_data, r_data;
+	logic [95:0] l_rgb, r_rgb;
+	logic l_vsync, l_hsync, l_active;
+	logic [2:0] l_phase;
 	logic [3:0] ovl;
 	mipi_format_lcd i_dut(
 		// System
 		.clk	( clk ),
 		.reset	( reset ),
-		// LCD Info inputs
-		.lcd_te( 1'b1 ),
-		.lcd_pwm( 1'b0 ),
-		.lcd_id( 2'b01 ),
+		.lane   ( 1'b0 ),
 		// LCD control outputs
 		.lcd_reset( lcd_reset ),
 		.lcd_pn2ptx( lcd_pn2ptx ),
@@ -120,50 +142,109 @@ module dsi_tb();
 		.lcd_en_vsn( lcd_en_vsn ),
 		.lcd_en_vcc( lcd_en_vcc ),
 		// Mipi Control Outputs
-		.txlpen	( d0_txlpen ),
-		.txlpn	( d0_txlpn ),
-		.txlpp	( d0_txlpp ),
-		.txhsen	( d0_txhsen ),
-		.clk_txhsen	( clk_txhsen ), 
-		.clk_txhsgate	( clk_txhsgate ), 
-		.clk_txlpen	( clk_txlpen ), 
-    		.clk_txlpn 	( clk_txlpn ), 
-		.clk_txlpp	( clk_txlpp ),
+		.txlpen	( l_txlpen ),
+		.txlpn	( l_txlpn ),
+		.txlpp	( l_txlpp ),
+		.txhsen	( l_txhsen ),
+		.clk_txhsen	( l_ctxhsen ), 
+		.clk_txhsgate	( l_ctxhsgate ), 
+		.clk_txlpen	( l_ctxlpen ), 
+    		.clk_txlpn 	( l_ctxlpn ), 
+		.clk_txlpp	( l_ctxlpp ),
 		// Mipi Tx Data
-		.l_data ( a_tx_data[63:0] ),
-		.r_data ( b_tx_data[63:0] ),
+		.data ( l_data[63:0] ),
 		// Video Sync output
-		.vsync ( vsync ),
-		.hsync ( hsync ),
-		.active( active ),
-		.phase ( phase[2:0] ),
+		.vsync ( l_vsync ),
+		.hsync ( l_hsync ),
+		.active( l_active ),
+		.phase ( l_phase[2:0] ),
 		// RGB Inputs
-		.l_rgb	( left_rgb[95:0] ),
-		.r_rgb	( right_rgb[95:0] | {{24{ovl[3]}},{24{ovl[2]}},{24{ovl[1]}},{24{ovl[0]}}}  )
+		.rgb	( l_rgb[95:0] )
 	);
+
+	// Right Lane
+	logic r_txlpen, r_txlpn, r_txlpp, r_txhsen;
+	wire r_ctxlpen, r_ctxlpn, r_ctxlpp, r_ctxhsen, r_ctxhsgate;
+	logic r_vsync, r_hsync, r_active;
+	logic [2:0] r_phase;
+	mipi_format_lcd i_dut1(
+		// System
+		.clk	( rclk ),
+		.reset	( reset ),
+		.lane   ( 1'b1 ),
+		// LCD control outputs
+		.lcd_reset( ),
+		.lcd_pn2ptx( ),
+		.lcd_en_vsp( ),
+		.lcd_en_vsn( ),
+		.lcd_en_vcc( ),
+		// Mipi Control Outputs
+		.txlpen	( r_txlpen ),
+		.txlpn	( r_txlpn ),
+		.txlpp	( r_txlpp ),
+		.txhsen	( r_txhsen ),
+		.clk_txhsen	( r_ctxhsen ), 
+		.clk_txhsgate	( r_ctxhsgate ), 
+		.clk_txlpen	( r_ctxlpen ), 
+    		.clk_txlpn 	( r_ctxlpn ), 
+		.clk_txlpp	( r_ctxlpp ),
+		// Mipi Tx Data
+		.data ( r_data[63:0] ),
+		// Video Sync output
+		.vsync ( r_vsync ),
+		.hsync ( r_hsync ),
+		.active( r_active ),
+		.phase ( r_phase[2:0] ),
+		// RGB Inputs
+		.rgb	( r_rgb[95:0] )
+	);
+
+	wire p_active, p_hsync, p_vsync;
+    	wire [95:0] p_rgb;
+    	lcd_split i_dut2(
+        	// System
+        	.reset ( reset ),
+        	// Left MIPI Lane
+        	.l_clk ( clk ),
+        	.l_rgb( l_rgb ),
+        	.l_active( l_active ),
+        	.l_phase( l_phase ),
+        	.l_hsync( l_hsync ),
+        	.l_vsync( l_vsync ),
+        	// Left MIPI Lane
+        	.r_clk ( rclk ),
+        	.r_rgb( r_rgb ),
+        	.r_active( r_active ),
+        	.r_phase( r_phase ),
+        	.r_hsync( r_hsync ),
+        	.r_vsync( r_vsync ),
+        	// Pixel Interface
+        	.p_clk ( pclk ),
+        	.p_rgb ( p_rgb ),
+        	.p_hsync( p_hsync ),
+        	.p_vsync( p_vsync ),
+        	.p_active( p_active )
+    	);
+
 
     	test_pattern_lcd i_test_pat (
 		// system
-		.clk	( clk ),
+		.clk	( pclk ),
 		.reset  ( reset ),
 		// Video sync input
-		.vsync	( vsync ),
-		.hsync	( hsync ),
-		.active ( active ),
-		.phase	( phase ),   
+		.vsync	( p_vsync ),
+		.hsync	( p_hsync ),
+		.active ( p_active ),
 		// RGB Outputs
-		.rgb_left	( left_rgb[95:0]  ),
-		.rgb_right	( right_rgb[95:0] )
+		.rgb   ( p_rgb[95:0]  )
 	);
 
 	wire blink;
 	// speed up blink so it finishes in sime time
-	commit_overlay #(22) i_com_ovl( clk, reset, vsync, hsync, active, phase, ovl, blink); 
+	commit_overlay #(22) i_com_ovl( pclk, reset, p_vsync, p_hsync, p_active, ovl, blink); 
 
 	// Run the test
     	initial begin
-		left_rgb = 96'h01234567_89abcdef_76543210;
-		right_rgb = 96'h89abcdef_01234567_89abcdef;
 		while( reset ) @(negedge clk); // wait for reset to finish
 
 		// wait 6ms of power up
@@ -186,6 +267,16 @@ module dsi_tb();
                 $display("Test completed normally");
 		$finish();
         end
+
+	// Monitor the init startup
+	// 40 cycles after hs enables
+	initial begin
+		while( !l_txhsen ) @(negedge clk);
+		for( int ii = 0; ii < 40; ii++ ) begin
+			@( negedge clk );
+			$display("L %16h    R %16h", l_data, r_data);
+		end
+	end
 endmodule
 
 

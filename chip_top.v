@@ -30,8 +30,8 @@ module chip_top (
 	led1,	// LR Led (D3) -- reset output
 	led2,	// UR Led (D4) -- test blinker0
 	led3,	// LL Led (D5) -- test blinker1
-	key0, 	// L button (K2) -- tied to blinker 0 for now.
-	key1, 	// R Button (K1) -- pushbutton reset
+	key0, 	// L button (K2) -- pushbutton reset
+	key1, 	// R Button (K1) -- tied to blinker 0 for now.
 	// fpga uart
 	fpga_txd,
 	fpga_rxd
@@ -66,14 +66,23 @@ module chip_top (
 	// 50 hz clkin is pin driven from external 50 Mhz Osc
 	
 	// 62.5 Mhz System clock is the HSbyteclk from the mipi cores.
-	wire clk, clkr; // these should be exaclty in phase, with just jitter (no fifo needed?)
-
+	wire clk, clkr; // not assume they are phase aligned
+	
+	// Target minimum 66 Mhz rgb4 based pell clock to meet LCD raster latency
+	// PLL running off oscillaor input
+	wire pclk; // 266 MHz (future)
+	wire pclkd4; // 66 Mhh clock for 4 pels (we use this one);
+	wire pclkd8; // 33 Mhz, (future)
+	wire fbclk;
+	user_pll i_pll(clkin, fbclk, pclk, pclkd4, pclkd8);
+	
 	// Reset Strategy
 	//
 	// As this is an fpga we config determines start state,
 	// however we'd like a functional syncronous global 'reset'
 	// At fpgra startup, reset remains asserted for 256 clkin_cycles
 	// External pushbutton K1 (left button) also generates a 100 Ms reset
+	// The resets are then crossed over to the other lane.
 
 	// fpga config reset
 	reg [7:0] cfg_count; // init to zero at fpga config
@@ -90,9 +99,17 @@ module chip_top (
 		             ( ext_count != 0 ) ? ext_count - 1 : 0;
 		
 	// global sync reset
-	reg reset;
+	reg pre_reset;
 	always @(posedge clk) 
-		reset <= ( cfg_count != 8'hff || ext_count != 0 ) ? 1'b1 : 1'b0;
+		pre_reset <= ( cfg_count != 8'hff || ext_count != 0 ) ? 1'b1 : 1'b0;
+		
+	
+	// double register and send reset to both clock domains
+	reg reset, resetr;
+	reg [1:0] rsh, rshr;
+	always @(posedge clk)  { reset, rsh }   <= { rsh, pre_reset };
+	always @(posedge clkr) { resetr, rshr } <= { rshr, pre_reset }; // metastable flops
+	
 		
 	// output reset as LED
 	assign led1 = reset;
@@ -134,12 +151,12 @@ module chip_top (
 	// 2x4 MIPI_DSI TX
 	/////////////////////////
 
-	wire clk_txlpen, clk_txlpn, clk_txlpp;
-	wire clk_txhsen, clk_txhsgate;
-	wire d0_txlpen, d0_txlpn, d0_txlpp; 
-	wire d0_txhsen;
-	wire [63:0] l_tx_data, r_tx_data;
-	
+	// LEFT (master) Lane
+	wire l_ctxlpen, l_ctxlpn, l_ctxlpp;
+	wire l_ctxhsen, l_ctxhsgate;
+	wire l_txlpen, l_txlpn, l_txlpp; 
+	wire l_txhsen;
+	wire [63:0] l_tx_data;
 	mipi_dsi_tx i_txl (
 		// Bidir ports
 		.clk_n	( l_clk_n ), 
@@ -152,19 +169,19 @@ module chip_top (
 		.d0_rxlpp	( ), 
 		
 		// TX LP ports
-		.d0_txlpen	( d0_txlpen ),
-    	.d0_txlpn	( d0_txlpn ), 
-		.d1_txlpn	( d0_txlpn ), 
-		.d2_txlpn	( d0_txlpn ), 
-		.d3_txlpn	( d0_txlpn ), 
-		.d0_txlpp	( d0_txlpp ), 
-		.d1_txlpp	( d0_txlpp ), 
-		.d2_txlpp	( d0_txlpp ), 
-    	.d3_txlpp	( d0_txlpp ), 		
+		.d0_txlpen	( l_txlpen ),
+    	.d0_txlpn	( l_txlpn ), 
+		.d1_txlpn	( l_txlpn ), 
+		.d2_txlpn	( l_txlpn ), 
+		.d3_txlpn	( l_txlpn ), 
+		.d0_txlpp	( l_txlpp ), 
+		.d1_txlpp	( l_txlpp ), 
+		.d2_txlpp	( l_txlpp ), 
+    	.d3_txlpp	( l_txlpp ), 		
 		
 		// TX HS ports
-		.d0_txhsen	( d0_txhsen ), 
-		.txdata	( l_tx_data[63:0] ),	
+		.d0_txhsen	( l_txhsen ), 
+		.txdata		( l_tx_data[63:0] ),	
 		.txhsbyteclk( clk ), // user clock
 		
 		// PLL Ports
@@ -174,16 +191,21 @@ module chip_top (
 		.usrstdby	( 1'b0 ), 
 		
 		// HS Clocking
-		.clk_txhsen		( clk_txhsen ), 
-		.clk_txhsgate	( clk_txhsgate ), // polarity??
+		.clk_txhsen		( l_ctxhsen ), 
+		.clk_txhsgate	( l_ctxhsgate ), // polarity??
 		
 		// LS Clocking
-		.clk_txlpen	( clk_txlpen ), 
-    	.clk_txlpn 	( clk_txlpn ), 
-		.clk_txlpp	( clk_txlpp )
+		.clk_txlpen	( l_ctxlpen ), 
+    	.clk_txlpn 	( l_ctxlpn ), 
+		.clk_txlpp	( l_txlpp )
 	);
 
-	
+	// RIGHT (slave) Lane
+	wire r_ctxlpen, r_ctxlpn, r_ctxlpp;
+	wire r_ctxhsen, r_ctxhsgate;
+	wire r_txlpen, r_txlpn, r_txlpp; 
+	wire r_txhsen;
+	wire [63:0] r_tx_data;
 	mipi_dsi_tx i_txr (
 		// Bidir ports
 		.clk_n	( r_clk_n ), 
@@ -196,19 +218,19 @@ module chip_top (
 		.d0_rxlpp	( ), 
 		
 		// TX LP ports
-		.d0_txlpen	( d0_txlpen ),
-    	.d0_txlpn	( d0_txlpn ), 
-		.d1_txlpn	( d0_txlpn ), 
-		.d2_txlpn	( d0_txlpn ), 
-		.d3_txlpn	( d0_txlpn ), 
-		.d0_txlpp	( d0_txlpp ), 
-		.d1_txlpp	( d0_txlpp ), 
-		.d2_txlpp	( d0_txlpp ), 
-    	.d3_txlpp	( d0_txlpp ), 		
+		.d0_txlpen	( r_txlpen ),
+    	.d0_txlpn	( r_txlpn ), 
+		.d1_txlpn	( r_txlpn ), 
+		.d2_txlpn	( r_txlpn ), 
+		.d3_txlpn	( r_txlpn ), 
+		.d0_txlpp	( r_txlpp ), 
+		.d1_txlpp	( r_txlpp ), 
+		.d2_txlpp	( r_txlpp ), 
+    	.d3_txlpp	( r_txlpp ), 		
 		
 		// TX HS ports
-		.d0_txhsen	( d0_txhsen ), 
-		.txdata	( r_tx_data[63:0] ),
+		.d0_txhsen	( r_txhsen ), 
+		.txdata		( r_tx_data[63:0] ),
 		.txhsbyteclk( clkr ), // phase locked to clk?
 		
 		// PLL Ports
@@ -218,31 +240,31 @@ module chip_top (
 		.usrstdby	( 1'b0 ), 
 		
 		// HS Clocking
-		.clk_txhsen		( clk_txhsen ), 
-		.clk_txhsgate	( clk_txhsgate ), 
+		.clk_txhsen		( r_ctxhsen ), 
+		.clk_txhsgate	( r_ctxhsgate ), 
 		
 		// LS Clocking
-		.clk_txlpen	( clk_txlpen ), 
-    	.clk_txlpn 	( clk_txlpn ), 
-		.clk_txlpp	( clk_txlpp )
+		.clk_txlpen	( r_ctxlpen ), 
+    	.clk_txlpn 	( r_ctxlpn ), 
+		.clk_txlpp	( r_ctxlpp )
 	);
 	
 	///////////////////////////////
 	// LCD Video Mipi Formating
 	///////////////////////////////
 	
-	wire [95:0] left_rgb, right_rgb;
-	wire [2:0] phase;
-	wire hsync, vsync, active;
+	// LEFT Lane
+	wire [95:0] left_rgb;
+	wire [2:0] l_phase;
+	wire l_hsync, l_vsync, l_active;
 	wire [3:0] ovl, ovl0, ovl1, ovl2;
-	mipi_format_lcd i_video (
+	
+	mipi_format_lcd i_lvideo (
 		// System
 		.clk	( clk ),
 		.reset	( reset ),
-		// LCD Info inputs
-		.lcd_te( 1'b1 ),
-		.lcd_pwm( lcd_pwm ),
-		.lcd_id( 2'b01 ),
+		// Static control input
+		.lane   ( 1'b0 ), // left
 		// LCD control outputs
 		.lcd_reset( lcd_reset ),
 		.lcd_pn2ptx( ),
@@ -250,79 +272,147 @@ module chip_top (
 		.lcd_en_vsn( ),
 		.lcd_en_vcc( lcd_en_vcc ),
 		// Mipi Control Outputs
-		.txlpen	( d0_txlpen ),
-		.txlpn	( d0_txlpn ),
-		.txlpp	( d0_txlpp ),
-		.txhsen	( d0_txhsen ),
-		.clk_txhsen		( clk_txhsen ), 
-		.clk_txhsgate	( clk_txhsgate ), 
-		.clk_txlpen		( clk_txlpen ), 
-    	.clk_txlpn 		( clk_txlpn ), 
-		.clk_txlpp		( clk_txlpp ),
+		.txlpen	( l_txlpen ),
+		.txlpn	( l_txlpn ),
+		.txlpp	( l_txlpp ),
+		.txhsen	( l_txhsen ),
+		.clk_txhsen		( l_ctxhsen ), 
+		.clk_txhsgate	( l_ctxhsgate ), 
+		.clk_txlpen		( l_ctxlpen ), 
+    	.clk_txlpn 		( l_ctxlpn ), 
+		.clk_txlpp		( l_ctxlpp ),
 		// Mipi Tx Data
-		.l_data ( l_tx_data[63:0] ),
-		.r_data ( r_tx_data[63:0] ),
+		.data 	( l_tx_data[63:0] ),
 		// Video Sync output
-		.vsync ( vsync ),
-		.hsync ( hsync ),
-		.active( active ),
-		.phase ( phase[2:0] ),
+		.vsync ( l_vsync ),
+		.hsync ( l_hsync ),
+		.active( l_active ),
+		.phase ( l_phase[2:0] ),
 		// RGB Inputs
-		.l_rgb	( left_rgb[95:0] ),
-		.r_rgb	( right_rgb[95:0] | {{24{ovl[3]}},{24{ovl[2]}},{24{ovl[1]}},{24{ovl[0]}}} )	// right has overlay	
+		.rgb	( left_rgb[95:0] | {{24{ovl[3]}},{24{ovl[2]}},{24{ovl[1]}},{24{ovl[0]}}} )
 	); 
+	// RIGHT Lane
+	wire [95:0] right_rgb;
+	wire [2:0] r_phase;
+	wire r_hsync, r_vsync, r_active;
+	mipi_format_lcd i_rvideo (
+		// System
+		.clk	( clkr ),
+		.reset	( resetr ),
+		// Static control input
+		.lane   ( 1'b1 ), // right
+		// LCD control outputs
+		.lcd_reset(  ),
+		.lcd_pn2ptx( ),
+		.lcd_en_vsp( ),
+		.lcd_en_vsn( ),
+		.lcd_en_vcc( ),
+		// Mipi Control Outputs
+		.txlpen	( r_txlpen ),
+		.txlpn	( r_txlpn ),
+		.txlpp	( r_txlpp ),
+		.txhsen	( r_txhsen ),
+		.clk_txhsen		( r_ctxhsen ), 
+		.clk_txhsgate	( r_ctxhsgate ), 
+		.clk_txlpen		( r_ctxlpen ), 
+    	.clk_txlpn 		( r_ctxlpn ), 
+		.clk_txlpp		( r_ctxlpp ),
+		// Mipi Tx Data
+		.data ( r_tx_data[63:0] ),
+		// Video Sync output
+		.vsync ( r_vsync ),
+		.hsync ( r_hsync ),
+		.active( r_active ),
+		.phase ( r_phase[2:0] ),
+		// RGB Inputs
+		.rgb	( right_rgb[95:0] )	// right has no overlay	
+	); 
+
+	///////////////////////////////
+	// RGB Left/Right splitter
+	///////////////////////////////	
 	
+	// Take as input a full raster image
+	// 4 rgb pels per cycle, full width, min freq clock 
+	// Output left and right half pel lane to D-Phys
+	wire p_active, p_hsync, p_vsync;
+	wire [95:0] p_rgb;
+	lcd_split i_splotter(
+		// System
+		.reset ( reset ),
+		// Left MIPI Lane
+		.l_clk ( clk ),
+		.l_rgb( left_rgb ),
+		.l_active( l_active ),
+		.l_phase( l_phase ),
+		.l_hsync( l_hsync ),
+		.l_vsync( l_vsync ),
+		// Left MIPI Lane
+		.r_clk ( clkr ),
+		.r_rgb( right_rgb ),
+		.r_active( r_active ),
+		.r_phase( r_phase ),
+		.r_hsync( r_hsync ),
+		.r_vsync( r_vsync ),
+		// Pixel Interface
+		.p_clk ( pclkd4 ),	
+		.p_rgb ( p_rgb ),
+		.p_hsync( p_hsync ),
+		.p_vsync( p_vsync ),
+		.p_active( p_active )
+	);
+
 	///////////////////////////////
 	// LCD Test Pattern Generator
 	///////////////////////////////
 
     test_pattern_lcd i_test_pat (
 		// system
-		.clk	( clk ),
+		.clk	( pclkd4 ),
 		.reset  ( reset ),
 		// Video sync input
-		.vsync	( vsync ),
-		.hsync	( hsync ),
-		.active ( active ),
-		.phase	( phase ),   
+		.vsync	( p_vsync ),
+		.hsync	( p_hsync ),
+		.active ( p_active ),
 		// RGB Outputs
-		.rgb_left	( left_rgb[95:0]  ),
-		.rgb_right	( right_rgb[95:0] )
+		.rgb( p_rgb )
 	);
 
+ 
+	// Hex overlays
 	wire [7:0] char_x, char_y;
 	wire [63:0] hex_char;
 	hex_font4 i_font (
 		// system
-		.clk	( clk ),
+		.clk	( pclkd4 ),
 		.reset  ( reset ),
 		// Video sync input
-		.vsync	( vsync ),
-		.hsync	( hsync ),
-		.active ( active ),
-		.phase	( phase ),   
+		.vsync	( p_vsync ),
+		.hsync	( p_hsync ),
+		.active ( p_active ),
 		// Char location and data
 		.char_x ( char_x ),
 		.char_y ( char_y ),
 		.hex_char ( hex_char )
 	);
 
+	// Overlay on Left Lane
 	// Commit overlay, sh watermark.sh after pull before building
-	commit_overlay i_com_ovl( clk, reset, vsync, hsync, active, phase, ovl0, led0 ); 
+	commit_overlay i_com_ovl( pclkd4, reset, p_vsync, p_hsync, p_active, ovl0, led0 ); 
 
 	
 	// Frame counter hex overlay
 	reg [31:0] frame_count;
-	always @(posedge clk) begin
-		frame_count <= ( reset ) ? 0 : ( vsync ) ? frame_count + 1 : frame_count;
+	always @(posedge pclkd4) begin
+		frame_count <= ( reset ) ? 0 : ( p_vsync ) ? frame_count + 1 : frame_count;
 	end
-	hex_overlay4 #( 8 ) i_hex1( clk, reset, char_x, char_y, hex_char, frame_count, 8'd4, 8'd4, ovl1 );
+	hex_overlay4 #( 8 ) i_hex1( pclkd4, reset, char_x, char_y, hex_char, frame_count, 8'd90, 8'd4, ovl1 );
 	
 	// Clock counter hex overlay 
 	reg [31:0] clk_count;
-	always @(posedge clk) 
+	always @(posedge pclkd4) 
 		clk_count <= ( reset ) ? 0 : clk_count + 1;
-	hex_overlay4 #( 8 ) i_hex2( clk, reset, char_x, char_y, hex_char, clk_count, 8'd4, 8'd5, ovl2 );
+	hex_overlay4 #( 8 ) i_hex2( pclkd4, reset, char_x, char_y, hex_char, clk_count, 8'd90, 8'd6, ovl2 );
 	
 	// Or together the overlays
 	// Toggle debug overlay HERE, synthesis removed unsed logic
@@ -331,6 +421,142 @@ module chip_top (
 
 endmodule
 
+module lcd_split (
+	// System
+	reset,
+	// LCD left mipi lane
+	l_clk,
+	l_rgb,
+	l_active,
+	l_phase,
+	l_hsync,
+	l_vsync,
+	// LCD right mipi lane
+	r_clk,
+	r_rgb,
+	r_active,
+	r_phase,
+	r_hsync,
+	r_vsync,
+	// Full raster pixel domain
+	p_clk,
+	p_rgb,
+	p_active,
+	p_hsync,
+	p_vsync	
+	);
+	input wire reset; // on clk = l_clk
+	output wire [95:0] l_rgb, r_rgb;
+	input wire [95:0] p_rgb;
+	input wire l_clk, r_clk, p_clk;
+	input wire l_active, l_hsync, l_vsync;
+	input wire r_active, r_hsync, r_vsync;
+	input wire [2:0] l_phase, r_phase;
+	output wire p_active, p_hsync, p_vsync;
+	
+	// Left, Right ping pong Buffers
+	// Used to split video, as well as cross clock domain
+	reg [95:0] l_buffer [511:0]; /* synthesis syn_ramstyle= "block_ram" */
+	reg [95:0] r_buffer [511:0]; /* synthesis syn_ramstyle= "block_ram" */
+	
+	/////////////
+	// Left Read
+	/////////////
+
+	// Calculate current coordinate from sync signals
+	reg [10:0] l_px, l_py;
+	reg l_del_active, l_act;
+	reg [8:0] l_addr;
+	always @(posedge l_clk) begin
+		l_del_active <= l_active;
+		l_act <= l_del_active; 
+		l_py <= ( l_vsync ) ? 0 : ( l_del_active && !l_active ) ? l_py + 1 : l_py; // inc at end of each active row
+		l_px <= ( l_hsync ) ? 0 : ( l_del_active &&  l_active && |l_phase[1:0] ) ? l_px + 4 : l_px; // inc during active phase 0 and 1, 4 pels per cycle
+
+		l_addr[8:0] <= { l_py[0], l_px[9:2] };
+	end
+
+	reg [95:0] l_rgb_reg;
+	always @(posedge l_clk) begin
+		l_rgb_reg <= l_buffer[l_addr];
+	end
+	assign l_rgb = l_rgb_reg;
+		
+	/////////////
+	// Right Read
+	/////////////
+
+	// Calculate current coordinate from sync signals
+	reg [10:0] r_px, r_py;
+	reg r_del_active, r_act;
+	reg [8:0] r_addr;
+	always @(posedge r_clk) begin
+		r_del_active <= r_active;
+		r_act <= r_del_active; 
+		r_py <= ( r_vsync ) ? 0 : ( r_del_active && !r_active ) ? r_py + 1 : r_py; // inc at end of each active row
+		r_px <= ( r_hsync ) ? 0 : ( r_del_active &&  r_active && |r_phase[1:0] ) ? r_px + 4 : r_px; // inc during active phase 0 and 1, 4 pels per cycle
+		r_addr <= { r_py[0], r_px[9:2] };
+	end
+
+	reg [95:0] r_rgb_reg;
+	always @(posedge r_clk) begin
+		r_rgb_reg <= r_buffer[r_addr];
+	end
+	assign r_rgb = r_rgb_reg;
+
+	///////////////
+	// Frame Write
+	///////////////
+		// Video sync clock crossing (Left to Pixel)
+	reg v_toggle, h_toggle;
+	always @(posedge l_clk) begin
+			v_toggle = v_toggle ^ l_vsync;
+			h_toggle = h_toggle ^ l_hsync;
+	end
+	// Capture toggles with metastable pairs and re-generate pulses
+	reg [3:0] v_cap, h_cap;
+	always @( posedge p_clk ) begin
+		v_cap[3:0] <= { v_cap[2] ^ v_cap[1], v_cap[1:0], v_toggle };
+		h_cap[3:0] <= { h_cap[2] ^ h_cap[1], h_cap[1:0], h_toggle };
+	end
+	assign p_hsync = h_cap[3];
+	assign p_vsync = v_cap[3];
+	
+	parameter VID_HEIGHT 	= 1600;
+	parameter VID_WIDTH 	= 1600;
+	parameter VID_VBACK 	= 150;
+	parameter VID_OFFSET   	= 40; // active start after hsync
+	parameter VID_LAT       = 3*4; // 3 cycles early
+	
+	reg [10:0] p_px, p_py, p_y;
+	reg [8:0] p_addr;
+	reg p_act, p_act_l, p_act_r;
+	reg p_v_active;
+	always @(posedge p_clk) begin
+		// Vertical count, active exactly 1 line early 
+		p_py <= ( p_vsync ) ? 0 : ( p_hsync ) ? p_py + 1 : p_py; // inc at end of each active row
+		p_v_active = ( p_py >= VID_VBACK-1 && p_py < VID_VBACK+VID_HEIGHT-1 ) ? 1'b1 : 1'b0; // 1 line early
+		// horizontal 
+		p_px <= ( p_hsync ) ? 0 : p_px + 4; // inc during active phase 0 and 1, 4 pels per cycle
+		p_act   <= ( p_v_active && p_px >= VID_OFFSET-VID_LAT && p_px < VID_WIDTH+VID_OFFSET-VID_LAT ) ? 1'b1 : 1'b0;  // 1 cycle early
+		p_act_l <= ( p_v_active && p_px >= VID_OFFSET && p_px < (VID_WIDTH/2)+VID_OFFSET ) ? 1'b1 : 1'b0; // left half
+		p_act_r <= ( p_v_active && p_px >= (VID_WIDTH/2)+VID_OFFSET && p_px < VID_WIDTH+VID_OFFSET ) ? 1'b1 : 1'b0; // Right half
+		p_addr[7:0] <= ( p_px == VID_OFFSET || p_px == (VID_WIDTH/2)+VID_OFFSET ) ? 0 : p_addr + 1;
+		p_y <= p_py - (VID_VBACK-1);
+		p_addr[8] <= p_y[0];
+	end	
+	assign p_active = p_act;
+	
+	// Write the buffers
+	always @(posedge p_clk) begin
+		if( p_act_l ) begin
+			l_buffer[p_addr] <= p_rgb;
+		end
+		if( p_act_r ) begin
+			r_buffer[p_addr] <= p_rgb;
+		end
+	end
+endmodule
 
 // Generate format RGB video for LCD display 
 // To drive 2x4 MIPI DSI TX cores.
@@ -338,10 +564,8 @@ module mipi_format_lcd (
 		// System
 		clk,
 		reset,
-		// LCD status 
-		lcd_te,
-		lcd_pwm,
-		lcd_id,
+		// Lane control 
+		lane,
 		// LCD control outputs
 		lcd_reset,
 		lcd_pn2ptx,
@@ -359,16 +583,14 @@ module mipi_format_lcd (
     	clk_txlpn,
 		clk_txlpp,
 		// Mipi Tx Data
-		l_data,
-		r_data,
+		data,
 		// Video Sync output
 		vsync,
 		hsync,
 		active,
 		phase,
 		// RGB Inputs
-		l_rgb,
-		r_rgb
+		rgb
 	);
 
 	// Video format parameters, derived from LCD datasheet
@@ -386,16 +608,15 @@ module mipi_format_lcd (
 	// Declare I/O
 	input wire clk;
 	input wire reset;
-	input wire lcd_te, lcd_pwm;
-	input wire [1:0] lcd_id;
+	input wire lane;
 	output wire lcd_reset, lcd_pn2ptx;
 	output wire lcd_en_vsp, lcd_en_vsn, lcd_en_vcc;
 	output wire txlpen,	txlpn, txlpp, txhsen;
 	output wire clk_txhsen,	clk_txhsgate, clk_txlpen, clk_txlpn, clk_txlpp;
 	output wire vsync, hsync, active;
 	output wire [2:0] phase; 
-	input wire [4*3*8-1:0] l_rgb, r_rgb; 
-	output wire [63:0] l_data, r_data; 
+	input wire [4*3*8-1:0] rgb; 
+	output wire [63:0] data; 
 
 
 	// 1 sec Initialization counter at 62.5 Mhz
@@ -435,23 +656,25 @@ module mipi_format_lcd (
 		start_cnt <= ( reset ) ? 0 : ( start_cnt == 39 ) ? 39 : ( hs_enable ) ? start_cnt + 1 : 0;
 
 	// Connect CLK lane controls
-	assign clk_txlpen 	= clpen[start_cnt];
-	assign clk_txlpp 	= clpdp[start_cnt];
-	assign clk_txlpn 	= clpdn[start_cnt];
-	assign clk_txhsen 	= chsen[start_cnt];
-	assign clk_txhsgate = chsgt[start_cnt];
+	assign clk_txlpen 	= clpen[start_cnt]; 
+	assign clk_txlpp 	= clpdp[start_cnt]; 
+	assign clk_txlpn 	= clpdn[start_cnt]; 
+	assign clk_txhsen 	= chsen[start_cnt]; 
+	assign clk_txhsgate = chsgt[start_cnt]; 
 	// Connect Data lane controls
-	assign  txlpen 		= dlpen[start_cnt];
+	assign  txlpen 		= dlpen[start_cnt]; 
 	assign  txlpp 		= dlpdp[start_cnt]; 
 	assign  txlpn 		= dlpdn[start_cnt]; 
-	assign  txhsen    	= dhsen[start_cnt];
+	assign  txhsen    	= dhsen[start_cnt]; 
 
 	
 	// constant array of init data size 32wx64b, to be folded into lut
 	function [2047:0] ini_data;
 		input right;
 		ini_data = {
-		// 1st 64 bit word completes the LP to HS transition
+		/////////////////////////////////////////////
+		// 1st word completes Mipi LP to HS transition
+		/////////////////////////////////////////////
 		// continue zero's to align
 		{4{8'h00}}, 
 		// a single synch 00011101 byte down each of 4 lanes
@@ -460,11 +683,14 @@ module mipi_format_lcd (
 		/////////////////////////////////////////////
 		// Custom LCD initialization, up to 30 words 
 		/////////////////////////////////////////////
-		// MFG Commands 
-		// <redacted>
+		// MFG Init Commands HERE
+
+		/////////////////////////////////////////////
+		// Alighnment and padding up to end of word 30
+		/////////////////////////////////////////////
 		// Alignment NOP to get to 64b boundary
 	    // Crc lens: 2,2,10,5,5,9,2,17,2,8,6,2,3,2,2,2, needs 9 bytes(crc3) to align at 23 words
-		ecc( { 8'h09, 8'h04, 8'h00} ), crc4( {4{8'h00}} ),
+		ecc( { 8'h09, 8'h03, 8'h00} ), crc3( {3{8'h00}} ),
 
 		// Padd to allocated 30 Init words / future expansion
 		ecc( { 8'h09, 8'h02, 8'h00} ), crc2( {2{8'h00}} ), // 64b word
@@ -488,17 +714,14 @@ module mipi_format_lcd (
 		};
 	endfunction
 	
-	wire [2047:0] l_ini_data, r_ini_data;
-	assign l_ini_data = ini_data( 0 );
-	assign r_ini_data = ini_data( 1 );
-	reg [63:0] l_cmd_rom [0:31]; // master (left) in little endian
-	reg [63:0] r_cmd_rom [0:31]; // subordinate (right) in little endian
+	wire [2047:0] init_data;
+	assign init_data = ini_data( lane );
+	reg [63:0] cmd_rom [0:31]; 
 	integer ii, jj;
-	always @(l_ini_data, r_ini_data) begin
+	always @(init_data) begin
 		for( ii = 0; ii < 32; ii = ii + 1 )
 			for( jj = 0; jj < 8; jj = jj + 1 ) begin
-				l_cmd_rom[31-ii][jj*8+7-:8] = l_ini_data[ii*64+63-jj*8-:8];
-				r_cmd_rom[31-ii][jj*8+7-:8] = r_ini_data[ii*64+63-jj*8-:8];
+				cmd_rom[31-ii][jj*8+7-:8] = init_data[ii*64+63-jj*8-:8];
 			end
 	end
 
@@ -510,10 +733,8 @@ module mipi_format_lcd (
 
 	wire [63:0] nop;
 	assign nop = swap8( { ecc( { 8'h09, 8'h02, 8'h00} ), crc4( {2{8'h00}} ) } );
-	wire [63:0] l_cmd, r_cmd;
-	assign l_cmd = l_cmd_rom[ini_addr];
-	assign r_cmd = r_cmd_rom[ini_addr];
-
+	wire [63:0] cmd;
+	assign cmd = cmd_rom[ini_addr];
 
 	// Video Timing Geneator
 	reg [2:0] ph;
@@ -549,17 +770,15 @@ module mipi_format_lcd (
 					 
 	// Register RGB inputs
 	// 2:3 rgb:mipi conversion logic
-	reg [96:0] lreg, rreg;
+	reg [96:0] hold;
 	always @(posedge clk) begin
-		lreg <= l_rgb;
-		rreg <= r_rgb;
+		hold <= rgb;
 	end
 	
 	// Pack RGB inputs into mipi words
 	// first word of RGB data arrives aligned with h_active, whith data on ph0, ph1
-	wire [63:0] l_prgb, r_prgb;
-	assign l_prgb[63:0] = ( ph[0] ) ? l_rgb[63:0] : ( ph[1] ) ? { l_rgb[31:0], rreg[95:64] } : lreg[95:32];
-	assign r_prgb[63:0] = ( ph[0] ) ? r_rgb[63:0] : ( ph[1] ) ? { r_rgb[31:0], lreg[95:64] } : rreg[95:32];
+	wire [63:0] prgb;
+	assign prgb[63:0] = ( ph[0] ) ? rgb[63:0] : ( ph[1] ) ? { rgb[31:0], hold[95:64] } : hold[95:32];
 	// Video MIPI words
 	wire [63:0] dsi_vss, dsi_hss, dsi_post_short;
 	wire [63:0] dsi_disp_on, dsi_sequence, dsi_protect;
@@ -580,59 +799,45 @@ module mipi_format_lcd (
 	assign dsi_protect		= swap8( { ecc( { 8'h29, 8'h02, 8'h00} ), crc2( { 8'hB0, 8'h03 } ) } );
 
 	// Calc CRC (TODO: set to 16'h0000 and see if it works (saves 15% of chip area)
-	wire [15:0] l_crc, r_crc;
-	vid_crc i_l_crc( .reset(reset), .clk(clk), .en( hactive & vactive ), .data( l_prgb ), .crc( l_crc ) );
-	vid_crc i_r_crc( .reset(reset), .clk(clk), .en( hactive & vactive ), .data( r_prgb ), .crc( r_crc ) );	
+	wire [15:0] vcrc;
+	vid_crc i_crc( .reset(reset), .clk(clk), .en( hactive & vactive ), .data( prgb ), .crc( vcrc ) );
 	// Build Video Frame data
-	reg [63:0] l_vid, r_vid;
+	reg [63:0] vid;
 	always @(posedge clk) begin
 		if( vid_en ) begin
 			if( xpos == 0 ) begin
-				l_vid <= ( ypos == 0 ) ? dsi_vss : dsi_hss;
-				r_vid <= ( ypos == 0 ) ? dsi_vss : dsi_hss;
+				vid <= ( ypos == 0 ) ? dsi_vss : dsi_hss;
 			end else if( xpos == 1 ) begin
-				l_vid <= dsi_post_short;
-				r_vid <= dsi_post_short;
+				vid <= dsi_post_short;
 			end else if( frame == 7 && ypos == 0 && xpos == 8 ) begin
-				l_vid <= dsi_sequence;
-				r_vid <= dsi_sequence;
+				vid <= dsi_sequence;
 			end else if( frame == 7 && ypos == 0 && xpos == 8+1 ) begin
-				l_vid <= dsi_protect;
-				r_vid <= dsi_protect;
+				vid <= dsi_protect;
 			end else if( vactive ) begin
 				if( xpos == VID_HFRONT - 2 ) begin
-					l_vid <= dsi_pre_rgb_0;
-					r_vid <= dsi_pre_rgb_0;
+					vid <= dsi_pre_rgb_0;
 				end else if ( xpos == VID_HFRONT - 1 ) begin
-					l_vid <= dsi_pre_rgb_1;
-					r_vid <= dsi_pre_rgb_1;		
+					vid <= dsi_pre_rgb_1;
 				end else if ( hactive ) begin
-					l_vid <= l_prgb;
-					r_vid <= r_prgb;
+					vid <= prgb;
 				end else if( xpos == VID_HBACK + VID_ACTIVE ) begin
-					l_vid[15:0] <= l_crc;
-					l_vid[63:16] <= dsi_post_rgb[63:16];
-					r_vid[15:0] <= r_crc;
-					r_vid[63:16] <= dsi_post_rgb[63:16];
+					vid[15:0]  <= vcrc;
+					vid[63:16] <= dsi_post_rgb[63:16];
 				end else begin
-					l_vid <= dsi_bp;
-					r_vid <= dsi_bp;
+					vid <= dsi_bp;
 				end
 			end else begin
-					l_vid <= dsi_bp;
-					r_vid <= dsi_bp;
+					vid <= dsi_bp;
 			end
 		end else begin
-			l_vid <= dsi_null;
-			r_vid <= dsi_null;
+			vid <= dsi_null;
 		end
 	end
 	
 	// data out to mipi dsi tx blocks
 	reg vid_en_d;
 	always @(posedge clk) vid_en_d <= vid_en;
-	assign l_data = ( vid_en_d ) ? l_vid : ( ini_active ) ? l_cmd : 0;
-	assign r_data = ( vid_en_d ) ? r_vid : ( ini_active ) ? r_cmd : 0;
+	assign data = ( vid_en_d ) ? vid : ( ini_active ) ? cmd : 0;
 `ifdef SIM
 endmodule
 `endif
@@ -671,17 +876,17 @@ endmodule
 			end
 	endfunction
 	// MIPI DSI CRC function for long packet payloads
-	function [3*8-1:0] crc1; input [1*8-1:0] d; begin crc1 = { d, crc( 5'd1, d ) }; end endfunction
-	function [4*8-1:0] crc2; input [2*8-1:0] d; begin crc2 = { d, crc( 5'd2, d ) }; end endfunction
-	function [5*8-1:0] crc3; input [3*8-1:0] d; begin crc3 = { d, crc( 5'd3, d ) }; end endfunction
-	function [6*8-1:0] crc4; input [4*8-1:0] d; begin crc4 = { d, crc( 5'd4, d ) }; end endfunction
-	function [7*8-1:0] crc5; input [5*8-1:0] d; begin crc5 = { d, crc( 5'd5, d ) }; end endfunction
-	function [8*8-1:0] crc6; input [6*8-1:0] d; begin crc6 = { d, crc( 5'd6, d ) }; end endfunction
-	function [9*8-1:0] crc7; input [7*8-1:0] d; begin crc7 = { d, crc( 5'd7, d ) }; end endfunction
-	function [10*8-1:0] crc8; input [8*8-1:0] d; begin crc8 = { d, crc( 5'd8, d ) }; end endfunction
-	function [11*8-1:0] crc9; input [9*8-1:0] d; begin crc9 = { d, crc( 5'd9, d ) }; end endfunction
-	function [12*8-1:0] crc10; input [10*8-1:0] d; begin crc10 = { d, crc( 5'd10, d ) }; end endfunction
-	function [19*8-1:0] crc17; input [17*8-1:0] d; begin crc17 = { d, crc( 5'd17, d ) }; end endfunction
+	function [3*8-1:0] crc1; input [1*8-1:0] d; begin crc1 = { d, base_crc( 5'd1, d ) }; end endfunction
+	function [4*8-1:0] crc2; input [2*8-1:0] d; begin crc2 = { d, base_crc( 5'd2, d ) }; end endfunction
+	function [5*8-1:0] crc3; input [3*8-1:0] d; begin crc3 = { d, base_crc( 5'd3, d ) }; end endfunction
+	function [6*8-1:0] crc4; input [4*8-1:0] d; begin crc4 = { d, base_crc( 5'd4, d ) }; end endfunction
+	function [7*8-1:0] crc5; input [5*8-1:0] d; begin crc5 = { d, base_crc( 5'd5, d ) }; end endfunction
+	function [8*8-1:0] crc6; input [6*8-1:0] d; begin crc6 = { d, base_crc( 5'd6, d ) }; end endfunction
+	function [9*8-1:0] crc7; input [7*8-1:0] d; begin crc7 = { d, base_crc( 5'd7, d ) }; end endfunction
+	function [10*8-1:0] crc8; input [8*8-1:0] d; begin crc8 = { d, base_crc( 5'd8, d ) }; end endfunction
+	function [11*8-1:0] crc9; input [9*8-1:0] d; begin crc9 = { d, base_crc( 5'd9, d ) }; end endfunction
+	function [12*8-1:0] crc10; input [10*8-1:0] d; begin crc10 = { d, base_crc( 5'd10, d ) }; end endfunction
+	function [19*8-1:0] crc17; input [17*8-1:0] d; begin crc17 = { d, base_crc( 5'd17, d ) }; end endfunction
 
 	function [15:0] crc_round;
 		input d;
@@ -696,7 +901,7 @@ endmodule
 		end
 	endfunction
 	
-	function [15:0] crc;
+	function [15:0] base_crc;
 		input [4:0] len; // will be 1 to 17
 		input [17*8-1:0] din;
 		reg [15:0] sreg;
@@ -710,7 +915,7 @@ endmodule
 					end
 				end
 			end
-			crc = { sreg[7:0], sreg[15:8] }; // output is big endian 
+			base_crc = { sreg[7:0], sreg[15:8] }; // output is big endian 
 		end
 	endfunction
 
@@ -729,20 +934,10 @@ module vid_crc (
 	input wire [63:0] data;
 	output reg [15:0] crc;
 	
-	reg [15:0] sreg [0:64];
-	integer ii;
-	always @(crc, data) begin
-		sreg[0] = crc;
-		for( ii = 1; ii < 65; ii = ii + 1 ) begin
-			sreg[ii] = crc_round( data[ii-1], sreg[ii-1] );
-		end
-	end
-	
 	always @(posedge clk) begin
 		if( reset || !en ) begin
 			crc <= 16'hffff;
 		end else begin
-			//crc <= sreg[64];
 			// Optimized 64 bit checksum calc (synth should easily do this!?)
  			crc[0] <= ^({data[63:0],crc[15:0]} & 80'h11303471a041b343b343);
  			crc[1] <= ^({data[63:0],crc[15:0]} & 80'h226068e3408366876687);
@@ -762,21 +957,6 @@ module vid_crc (
  			crc[15] <= ^({data[63:0],crc[15:0]} & 80'h88981a38d020d9a1d9a1);
 		end
 	end
-`ifndef SIM
-// un-neccary replication due to verilog's lack of global functions
-	function [15:0] crc_round;
-		input d;
-		input [15:0] cin;
-		begin
-			crc_round = { 	cin[0] ^ d, 
-			                cin[15:12],
-							cin[11] ^ cin[0] ^ d,
-							cin[10:5],
-							cin[4] ^ cin[0] ^ d,
-							cin[3:1] };
-		end
-	endfunction
-`endif
 endmodule
 
 // Generate an ECC
@@ -800,8 +980,8 @@ endmodule
 `endif
 
 // A test pattern generator
-// 1600x1600 RGB, with L/R outputs (800wide),
-// and 4 pixels/cycle, each 2 of 3 cycles 
+// Full frame RGB
+// and 4 pixels/cycle
 module test_pattern_lcd (
 		// system
 		clk,
@@ -810,54 +990,37 @@ module test_pattern_lcd (
 		vsync,
 		hsync,
 		active, // 3 cycles earliy
-		phase,
 		// RGB Outputs
-		rgb_left,
-		rgb_right
+		rgb
 	);
-	// Video format parameters, derived from LCD datasheet
-	// only those needed for video
-	parameter VID_HEIGHT 	= 1600;
-	parameter VID_WIDTH		= 1600;
-	parameter VID_ACTIVE 	= 300; 
 
-	// Declare I/O
+// Declare I/O
 	input wire clk;
 	input wire reset;
 	input wire vsync, hsync, active;
-	input wire [2:0] phase; 
-	output wire [4*3*8-1:0] rgb_left, rgb_right; 
+	output wire [4*3*8-1:0] rgb; 
 	
-	// Calculate current coordinate
+	// Calculate current coordinate from sync signals
 	reg [10:0] x, y, px, py;
 	reg del_active, act;
 	always @(posedge clk) begin
 		del_active <= active;
 		act <= del_active; 
 		py <= ( vsync ) ? 0 : ( del_active && !active ) ? py + 1 : py; // inc at end of each active row
-		px <= ( hsync ) ? 0 : ( del_active &&  active && |phase[1:0] ) ? px + 4 : px; // inc during active phase 0 and 1, 4 pels per cycle
+		px <= ( hsync ) ? 0 : ( del_active &&  active ) ? px + 4 : px; // inc during active phase 0 and 1, 4 pels per cycle
 		x <= px;
 		y <= py;
 	end
 
 	// calculate 8 RGB output pixels values per cycle 
     // adds 1 cycle delay
-	// left lane offset 0,1,2,3
+	// left lane offset 0,1,2,3, or right lanes 800, 801, 802, 803
 	wire [8:0] xl;
-	assign xl = x[10:2];
-	smpte_test i_left0( clk, act, {xl,2'd0}, y, rgb_left[ 7: 0], rgb_left[15: 8], rgb_left[23:16] );
-	smpte_test i_left1( clk, act, {xl,2'd1}, y, rgb_left[31:24], rgb_left[39:32], rgb_left[47:40] );
-	smpte_test i_left2( clk, act, {xl,2'd2}, y, rgb_left[55:48], rgb_left[63:56], rgb_left[71:64] );
-	smpte_test i_left3( clk, act, {xl,2'd3}, y, rgb_left[79:72], rgb_left[87:80], rgb_left[95:88] );	
-	// right lane offset 800, 801, 802, 803
-	wire [8:0] xr;
-    wire [1:0] dum;
-	assign {xr, dum} = x + (VID_WIDTH/2);
-	smpte_test i_right0( clk, act, {xr,2'd0}, y, rgb_right[ 7: 0], rgb_right[15: 8], rgb_right[23:16] );
-	smpte_test i_right1( clk, act, {xr,2'd1}, y, rgb_right[31:24], rgb_right[39:32], rgb_right[47:40] );
-	smpte_test i_right2( clk, act, {xr,2'd2}, y, rgb_right[55:48], rgb_right[63:56], rgb_right[71:64] );
-	smpte_test i_right3( clk, act, {xr,2'd3}, y, rgb_right[79:72], rgb_right[87:80], rgb_right[95:88] );
-	
+	assign xl = x[10:2]; // mask lsbs
+	smpte_test i_test0( clk, act, {xl,2'd0}, y, rgb[ 7: 0], rgb[15: 8], rgb[23:16] );
+	smpte_test i_test1( clk, act, {xl,2'd1}, y, rgb[31:24], rgb[39:32], rgb[47:40] );
+	smpte_test i_test2( clk, act, {xl,2'd2}, y, rgb[55:48], rgb[63:56], rgb[71:64] );
+	smpte_test i_test3( clk, act, {xl,2'd3}, y, rgb[79:72], rgb[87:80], rgb[95:88] );	
 endmodule
 
 // Create a simple test pattern
@@ -943,7 +1106,6 @@ module hex_font4 (
 		vsync,
 		hsync,
 		active, // 3 cycle earliy
-		phase,
 		// Char location
 		char_x, 
 		char_y,
@@ -954,7 +1116,6 @@ module hex_font4 (
 	input wire clk;
 	input wire reset;
 	input wire vsync, hsync, active;
-	input wire [2:0] phase;
 	output wire [7:0] char_x;
 	output wire [7:0] char_y;
 	output wire [63:0] hex_char;  // easy to use for hex display
@@ -966,7 +1127,7 @@ module hex_font4 (
 		del_active <= active;
 		// add 1 cycle
 		y <= ( vsync ) ? 11'd0 : ( del_active && !active ) ? y + 11'd1 : y;
-		x <= ( hsync ) ? 11'd0 : ( active && |phase[1:0] ) ? x + 11'd1 : x;
+		x <= ( hsync ) ? 11'd0 : ( active ) ? x + 11'd1 : x;
 	end
 
 	assign char_x = x[10:3]; 
@@ -1079,7 +1240,6 @@ module commit_overlay
 		vsync,
 		hsync,
 		active,
-		phase,
 		// output
 		out,
 		blink
@@ -1090,7 +1250,6 @@ module commit_overlay
 	input wire clk;
 	input wire reset;
 	input wire vsync, hsync, active;
-	input wire [2:0] phase;
 	output wire [3:0] out;
 	output wire blink;
 
@@ -1103,7 +1262,7 @@ module commit_overlay
 		del_active <= active;
 		// x and y add 1 cycle
 		y <= ( vsync ) ? 0 : ( del_active && !active ) ? y + 1 : y; // 1 Step is 1 line
-		x <= ( hsync ) ? 0 : ( active && |phase[1:0] ) ? x + 1 : x; // 1 step is 4 pels
+		x <= ( hsync ) ? 0 : ( active ) ? x + 1 : x; // 1 step is 4 pels
 	end 
 	
 	// Commit Rom 
@@ -1114,7 +1273,7 @@ module commit_overlay
 	// y[10:4] == 7'd80 gives us pel row 80*16 , 
     // x[10:4] == 7'd1 gives us pel cols 16*4 through 32*4 
 	wire window;
-	assign window = ( y[10:4] == 7'd80 && x[10:4] == 7'd1 ) ? 1'b1 : 1'b0;
+	assign window = ( y[10:4] == 7'd50 && x[10:4] == 7'd1 ) ? 1'b1 : 1'b0;
 	
 	reg [29:0] bcnt; // 16 sec counter
 	always @(posedge clk)
