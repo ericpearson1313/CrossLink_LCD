@@ -791,7 +791,7 @@ module mipi_format_lcd (
 	assign dsi_vss          = swap8( { ecc( { 8'h01, 8'h00, 8'h00 } ), ecc( { 8'h19, 8'h06, 8'h00 } ) } );
 	assign dsi_hss          = swap8( { ecc( { 8'h21, 8'h00, 8'h00 } ), ecc( { 8'h19, 8'h06, 8'h00 } ) } );
 	assign dsi_post_short	= swap8( crc6( {6{8'h00}} ) );
-	assign dsi_pre_rgb      = { ecc( { 8'h19, 8'h06, 8'h00} ), crc6( {6{8'h00}} ), ecc( { 8'h3E, 8'h84, 8'h03} ) }; 
+	assign dsi_pre_rgb      = { ecc( { 8'h19, 8'h06, 8'h00} ), crc6( {6{8'h00}} ), ecc( { 8'h3E, 8'h60, 8'h09} ) }; 
 	assign dsi_pre_rgb_0	= swap8( dsi_pre_rgb[127:64] );
 	assign dsi_pre_rgb_1	= swap8( dsi_pre_rgb[63:0] );
 	assign dsi_post_rgb		= swap8( { 16'h0000, ecc( { 8'h19, 8'h00, 8'h00 } ), 16'hffff } );
@@ -1057,8 +1057,8 @@ module smpte_test(	clk, act, x,	y,	r,	g, b );
 			rgb <= 0;
 		end else if( x == 0 || y == 0 || x == VID_HEIGHT-1 || y == VID_WIDTH-1 ) begin // Boarder square
 			rgb <= SMPTE_White;
-		end else if ( (x == 200 || x == 599 ) && y >= 200 && y < 600 ||
-		              (y == 200 || y == 599 ) && x >= 200 && x < 600 ) begin // centered half size square
+		end else if ( (x == 500 || x == 1099 ) && y >= 500 && y < 1100 ||
+		              (y == 500 || y == 1099 ) && x >= 500 && x < 1100 ) begin // centered half size square
 			rgb <= SMPTE_White;
 		end else if ( x == y || x == VID_HEIGHT-y-1 ) begin // diagonal X
 			rgb <= SMPTE_White;

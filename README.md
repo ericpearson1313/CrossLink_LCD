@@ -209,6 +209,27 @@ The source video clock in this was selected to be the minimum easily generated a
 The shown 6usec utillzed over 95% of the 6.24usec scaline time. This was accomplished with a 15ns period clock (66Mhz) tranfering four (4) rgb pels per cycle.
 A higher multiple (266Mhz) is also available to be used if a single RGB per cycle source were needed.
 
+# DSI Stream analysis
+
+I wanted to add some automation to check the DSI streams generated from the verilator testbench. 
+The testbench itself was modified to dump the left and right DSI data byte streams into binary files.
+A dump_dsi.c file was created to parse a DSI file. It is limited to the dsi commands we use: 01,05,21,09,19,29,39,3E,
+and would error on any unexpected commands. This found a HW error in the header of the pixel row. Add ECC and CRC checking further improved the test.
+
+The next level would be pixel level verification. I really wanted to see the pixel data, so during DSI parsing I dumped the raw data into a BMP file. This resulted in several improvements to the test pattern generator. I added the generation into the run script
+
+	cc dsi_dump.c -o dsi_dump
+	./dsi_dump < left.dsi > file
+	mv -f dsi.bmp left.bmp
+	./dsi_dump < right.dsi > file
+	mv -f dsi.bmp right.bmp
+
+The current result is shown.
+
+<img src="left.bmp" width="200"> <img src="right.bmp" width="200">
+
+Hmm... It appears there is a endian swap of RGB to BGR somewhere along the full RTL test generator to BMP display pipeline. Will look into it..
+
 # Debug Logic
 This is the *optional* part of the design. It is practically necessary though, so I tend to put it first in development for any new platform.
 

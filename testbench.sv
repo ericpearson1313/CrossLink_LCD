@@ -220,7 +220,7 @@ module dsi_tb();
         	.r_vsync( r_vsync ),
         	// Pixel Interface
         	.p_clk ( pclk ),
-        	.p_rgb ( p_rgb ),
+        	.p_rgb ( p_rgb | {{24{ovl[0]}},{24{ovl[1]}},{24{ovl[2]}},{24{ovl[3]}}} ),
         	.p_hsync( p_hsync ),
         	.p_vsync( p_vsync ),
         	.p_active( p_active )
@@ -242,6 +242,32 @@ module dsi_tb();
 	wire blink;
 	// speed up blink so it finishes in sime time
 	commit_overlay #(22) i_com_ovl( pclk, reset, p_vsync, p_hsync, p_active, ovl, blink); 
+
+	// Log the DSI outputs to binary DSI byte files
+	integer lfd, rfd;
+    	initial begin // lgg left DSI
+		lfd = $fopen("left.dsi", "wb");
+		for(;;) begin
+			@(negedge clk);
+			if( l_ctxhsen ) begin
+				for( int ii = 0; ii < 8; ii++ ) begin
+					$fwrite(lfd, "%c", l_data[ii*8+7-:8] );
+				end
+			end
+		end
+	end
+
+    	initial begin // log right DSI
+		rfd = $fopen("right.dsi", "wb");
+		for(;;) begin
+			@(negedge rclk);
+			if( r_ctxhsen ) begin
+				for( int ii = 0; ii < 8; ii++ ) begin
+					$fwrite(rfd, "%c", r_data[ii*8+7-:8] );
+				end
+			end
+		end
+	end
 
 	// Run the test
     	initial begin
@@ -265,8 +291,12 @@ module dsi_tb();
 		// finish up sim 
 		for( int ii = 0; ii < 10; ii++ ) @(negedge clk);
                 $display("Test completed normally");
+		$fclose( lfd );
+		$fclose( rfd );
 		$finish();
         end
+
+
 
 	// Monitor the init startup
 	// 40 cycles after hs enables
