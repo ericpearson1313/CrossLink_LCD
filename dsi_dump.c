@@ -86,7 +86,7 @@ int main( int argc, char **argv )
 
 	
 	// Read and dump DSI messages
-	unsigned char c, c1, c2, c3;
+	unsigned char c, c1, c2, c3, r, g, b;
 	unsigned char ecc;
 	unsigned crc;
 	unsigned int len;
@@ -202,11 +202,20 @@ int main( int argc, char **argv )
 			// Pels
 			len = c1 + (c2<<8);;
 			crc = 0xffff;
-			for( int ii = 0; ii < len; ii++ ) {
-				c = fgetc( lfp );
-				crc = mipi_crc( c, crc );
-				fputc( c, bmp );
-				printf(" %02x", c );
+			for( int ii = 0; ii < len; ii+= 3 ) {
+				// Read RGB from DSI
+				r = fgetc( lfp );
+				g = fgetc( lfp );
+				b = fgetc( lfp );
+				printf(" %02x %02x, %02x", r, g, b );
+				// Calc CRC
+				crc = mipi_crc( r, crc );
+				crc = mipi_crc( g, crc );
+				crc = mipi_crc( b, crc );
+				// Write BMP as BGR
+				fputc( b, bmp );
+				fputc( g, bmp );
+				fputc( r, bmp );
 			}
 			// Read CRC
 			c1 = fgetc( lfp );

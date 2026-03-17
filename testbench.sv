@@ -239,9 +239,45 @@ module dsi_tb();
 		.rgb   ( p_rgb[95:0]  )
 	);
 
+	// Hex overlays
+	wire [7:0] char_x, char_y;
+	wire [63:0] hex_char;
+	hex_font4 i_font (
+		// system
+		.clk	( pclk ),
+		.reset  ( reset ),
+		// Video sync input
+		.vsync	( p_vsync ),
+		.hsync	( p_hsync ),
+		.active ( p_active ),
+		// Char location and data
+		.char_x ( char_x ),
+		.char_y ( char_y ),
+		.hex_char ( hex_char )
+	);
+
 	wire blink;
+	wire [3:0] ovl0, ovl1, ovl2;
 	// speed up blink so it finishes in sime time
-	commit_overlay #(22) i_com_ovl( pclk, reset, p_vsync, p_hsync, p_active, ovl, blink); 
+	commit_overlay #(22) i_com_ovl( pclk, reset, p_vsync, p_hsync, p_active, ovl0, blink); 
+	
+	// Frame counter hex overlay
+	reg [31:0] frame_count;
+	always @(negedge pclk) begin
+		frame_count <= ( reset ) ? 0 : ( p_vsync ) ? frame_count + 1 : frame_count;
+	end
+	hex_overlay4 #( 8 ) i_hex1( pclk, reset, char_x, char_y, hex_char, frame_count, 8'd90, 8'd4, ovl1 );
+	
+	// Clock counter hex overlay 
+	reg [31:0] clk_count;
+	always @(negedge pclk) 
+		clk_count <= ( reset ) ? 0 : clk_count + 1;
+	hex_overlay4 #( 8 ) i_hex2( pclk, reset, char_x, char_y, hex_char, clk_count, 8'd90, 8'd6, ovl2 );
+	
+	// Or together the overlays
+	// Toggle debug overlay HERE, synthesis removed unsed logic
+	//assign ovl = ovl0; // just commit overlay rom, small (+3%) try to always keep!
+	assign ovl = ovl0 | ovl1 | ovl2; // add dynamic debug overlays, largish (cost=14%), can be useful
 
 	// Log the DSI outputs to binary DSI byte files
 	integer lfd, rfd;

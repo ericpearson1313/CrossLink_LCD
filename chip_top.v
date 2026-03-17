@@ -284,12 +284,12 @@ module chip_top (
 		// Mipi Tx Data
 		.data 	( l_tx_data[63:0] ),
 		// Video Sync output
-		.vsync ( l_vsync ),
+		.vsync ( l_vsync ), 
 		.hsync ( l_hsync ),
 		.active( l_active ),
 		.phase ( l_phase[2:0] ),
 		// RGB Inputs
-		.rgb	( left_rgb[95:0] | {{24{ovl[3]}},{24{ovl[2]}},{24{ovl[1]}},{24{ovl[0]}}} )
+		.rgb	( left_rgb[95:0] | {{24{ovl[0]}},{24{ovl[1]}},{24{ovl[2]}},{24{ovl[3]}}} )
 	); 
 	// RIGHT Lane
 	wire [95:0] right_rgb;
@@ -1130,7 +1130,7 @@ module hex_font4 (
 		x <= ( hsync ) ? 11'd0 : ( active ) ? x + 11'd1 : x;
 	end
 
-	assign char_x = x[10:3]; 
+	assign char_x = x[8:1]; 
 	assign char_y = { 1'b0, y[10:4]};
 	
 	// Simple 5x7 hex char font, 8 rows, expaded to 7x14, on a 8x16 grid
@@ -1153,7 +1153,7 @@ module hex_font4 (
 	integer ii;
 	always @(x, hex_char_row) begin
 		for( ii = 0; ii < 16; ii = ii + 1 ) begin
-			exp_row[ii*4+3-:4] = (x[0]) ? { hex_char_row[80-ii*5-4], hex_char_row[80-ii*5-5], hex_char_row[80-ii*5-5], 1'b0 } 
+			exp_row[ii*4+3-:4] = (!x[0]) ? { hex_char_row[80-ii*5-4], hex_char_row[80-ii*5-5], hex_char_row[80-ii*5-5], 1'b0 } 
 			                             : { hex_char_row[80-ii*5-1], hex_char_row[80-ii*5-1], hex_char_row[80-ii*5-2], hex_char_row[80-ii*5-3] };
 		end
 	end

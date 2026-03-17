@@ -228,8 +228,6 @@ The current result is shown.
 
 <img src="left.bmp" width="200"> <img src="right.bmp" width="200">
 
-Hmm... It appears there is a endian swap of RGB to BGR somewhere along the full RTL test generator to BMP display pipeline. Will look into it..
-
 # Debug Logic
 This is the *optional* part of the design. It is practically necessary though, so I tend to put it first in development for any new platform.
 
