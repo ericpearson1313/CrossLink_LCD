@@ -209,7 +209,7 @@ The source video clock in this was selected to be the minimum easily generated a
 The shown 6usec utillzed over 95% of the 6.24usec scaline time. This was accomplished with a 15ns period clock (66Mhz) tranfering four (4) rgb pels per cycle.
 A higher multiple (266Mhz) is also available to be used if a single RGB per cycle source were needed.
 
-# DSI Stream analysis
+### DSI Stream analysis
 
 I wanted to add some automation to check the DSI streams generated from the verilator testbench. 
 The testbench itself was modified to dump the left and right DSI data byte streams into binary files.
@@ -227,6 +227,17 @@ The next level would be pixel level verification. I really wanted to see the pix
 The current result is shown.
 
 <img src="left.bmp" width="200"> <img src="right.bmp" width="200">
+
+### Full chip with DPHY simulation
+
+So far have resisted (avoided) running a full chip simulation as it means dealing with the, always awkward, integration of simulation engines into the fpga build environment and the inveitable licensing and encryption of the simulaiton models of their proprietary hard IP blocks. The free simulation engines involved are usually not the fastest. I'll take verilators amazing speed any day. But these vendor provided full chip simulations are sometimes whats needed.
+
+After alot of pain I got a full chip RTL simulation running. I shortened the lcd power up and reset timing delays to make simulation time reasonable. With the model of the mipi DPHY include now, I was able to observe correct MIPI initialization from LP11 throught to first VSYNC. The full chip SIMs allowed me to find the last 2 bugs in the design. The first was a copy/paste typo on a top level signal name, which would only be found by visual inspection otherwise. The second bug was nasty. The latency of the clk gate (clk_txhsgate) had an undocumented two cycle latency from input to output (in addition to being inverted). I don't know how it would have been found otherwise without an oscilloscope. I assume there is some 'better' documentation available, but I didn't have it.
+
+This is a screenshot of the MIPI initialation transitioning from the idle state LP11 through to the first VSYNC. I was able to see the mipi clock go LP11->LP01->LP00->HS0->HS, and then, after the clocks are running, the MIPI data lanes all go through LP11->LP01->LP00->HS0->SYNC->LCD_INIT->VSYNC. Pure joy, 1.2usec from idle to vsync.
+
+<img src="mipi_init.png" width="800">
+
 
 # Debug Logic
 This is the *optional* part of the design. It is practically necessary though, so I tend to put it first in development for any new platform.
@@ -286,3 +297,4 @@ Note the bottom row is the binary output used for blink, and ignored for display
 
 
 
+8
