@@ -181,7 +181,22 @@ module chip_top (
 		
 		// TX HS ports
 		.d0_txhsen	( l_txhsen ), 
-		.txdata		( l_tx_data[63:0] ),	
+		.txdata ( {	l_tx_data[63], l_tx_data[55], l_tx_data[47], l_tx_data[39],
+					l_tx_data[62], l_tx_data[54], l_tx_data[46], l_tx_data[38],
+					l_tx_data[61], l_tx_data[53], l_tx_data[45], l_tx_data[37],
+					l_tx_data[60], l_tx_data[52], l_tx_data[44], l_tx_data[36],
+					l_tx_data[59], l_tx_data[51], l_tx_data[43], l_tx_data[35],
+					l_tx_data[58], l_tx_data[50], l_tx_data[42], l_tx_data[34],
+					l_tx_data[57], l_tx_data[49], l_tx_data[41], l_tx_data[33],
+					l_tx_data[56], l_tx_data[48], l_tx_data[40], l_tx_data[32],
+					l_tx_data[31], l_tx_data[23], l_tx_data[15], l_tx_data[ 7],
+					l_tx_data[30], l_tx_data[22], l_tx_data[14], l_tx_data[ 6],
+					l_tx_data[29], l_tx_data[21], l_tx_data[13], l_tx_data[ 5],
+					l_tx_data[28], l_tx_data[20], l_tx_data[12], l_tx_data[ 4],
+					l_tx_data[27], l_tx_data[19], l_tx_data[11], l_tx_data[ 3],
+					l_tx_data[26], l_tx_data[18], l_tx_data[10], l_tx_data[ 2],
+					l_tx_data[25], l_tx_data[17], l_tx_data[ 9], l_tx_data[ 1],
+					l_tx_data[24], l_tx_data[16], l_tx_data[ 8], l_tx_data[ 0] } ),
 		.txhsbyteclk( clk ), // user clock
 		
 		// PLL Ports
@@ -192,12 +207,12 @@ module chip_top (
 		
 		// HS Clocking
 		.clk_txhsen		( l_ctxhsen ), 
-		.clk_txhsgate	( l_ctxhsgate ), // polarity??
+		.clk_txhsgate	( !l_ctxhsgate ), // polarity??
 		
 		// LS Clocking
 		.clk_txlpen	( l_ctxlpen ), 
     	.clk_txlpn 	( l_ctxlpn ), 
-		.clk_txlpp	( l_txlpp )
+		.clk_txlpp	( l_ctxlpp )
 	);
 
 	// RIGHT (slave) Lane
@@ -230,7 +245,22 @@ module chip_top (
 		
 		// TX HS ports
 		.d0_txhsen	( r_txhsen ), 
-		.txdata		( r_tx_data[63:0] ),
+		.txdata ( {	r_tx_data[63], r_tx_data[55], r_tx_data[47], r_tx_data[39],
+					r_tx_data[62], r_tx_data[54], r_tx_data[46], r_tx_data[38],
+					r_tx_data[61], r_tx_data[53], r_tx_data[45], r_tx_data[37],
+					r_tx_data[60], r_tx_data[52], r_tx_data[44], r_tx_data[36],
+					r_tx_data[59], r_tx_data[51], r_tx_data[43], r_tx_data[35],
+					r_tx_data[58], r_tx_data[50], r_tx_data[42], r_tx_data[34],
+					r_tx_data[57], r_tx_data[49], r_tx_data[41], r_tx_data[33],
+					r_tx_data[56], r_tx_data[48], r_tx_data[40], r_tx_data[32],
+					r_tx_data[31], r_tx_data[23], r_tx_data[15], r_tx_data[ 7],
+					r_tx_data[30], r_tx_data[22], r_tx_data[14], r_tx_data[ 6],
+					r_tx_data[29], r_tx_data[21], r_tx_data[13], r_tx_data[ 5],
+					r_tx_data[28], r_tx_data[20], r_tx_data[12], r_tx_data[ 4],
+					r_tx_data[27], r_tx_data[19], r_tx_data[11], r_tx_data[ 3],
+					r_tx_data[26], r_tx_data[18], r_tx_data[10], r_tx_data[ 2],
+					r_tx_data[25], r_tx_data[17], r_tx_data[ 9], r_tx_data[ 1],
+					r_tx_data[24], r_tx_data[16], r_tx_data[ 8], r_tx_data[ 0] } ),
 		.txhsbyteclk( clkr ), // phase locked to clk?
 		
 		// PLL Ports
@@ -241,7 +271,7 @@ module chip_top (
 		
 		// HS Clocking
 		.clk_txhsen		( r_ctxhsen ), 
-		.clk_txhsgate	( r_ctxhsgate ), 
+		.clk_txhsgate	( !r_ctxhsgate ), 
 		
 		// LS Clocking
 		.clk_txlpen	( r_ctxlpen ), 
@@ -282,7 +312,7 @@ module chip_top (
     	.clk_txlpn 		( l_ctxlpn ), 
 		.clk_txlpp		( l_ctxlpp ),
 		// Mipi Tx Data
-		.data 	( l_tx_data[63:0] ),
+		.data	( l_tx_data[63:0] ),
 		// Video Sync output
 		.vsync ( l_vsync ), 
 		.hsync ( l_hsync ),
@@ -318,7 +348,7 @@ module chip_top (
     	.clk_txlpn 		( r_ctxlpn ), 
 		.clk_txlpp		( r_ctxlpp ),
 		// Mipi Tx Data
-		.data ( r_tx_data[63:0] ),
+		.data	( r_tx_data[63:0] ),
 		// Video Sync output
 		.vsync ( r_vsync ),
 		.hsync ( r_hsync ),
@@ -627,33 +657,42 @@ module mipi_format_lcd (
 
 	// Startup Sequence 
 	wire hs_enable, ini_active, vid_en;
-	assign  lcd_en_vcc 		= ( init_count > 1*MSEC ) ? 1'b1 : 1'b0;
-	assign  lcd_en_vsp 		= ( init_count > 2*MSEC ) ? 1'b1 : 1'b0;
-	assign  lcd_en_vsn 		= ( init_count > 3*MSEC ) ? 1'b1 : 1'b0;
-	assign  lcd_reset 	    = ( init_count > 6*MSEC ) ? 1'b1 : 1'b0;
+
+	//assign  lcd_en_vcc 		= ( init_count > 10 ) ? 1'b1 : 1'b0;
+	//assign  lcd_en_vsp 		= ( init_count > 20  ) ? 1'b1 : 1'b0;
+	//assign  lcd_en_vsn 		= ( init_count > 30 ) ? 1'b1 : 1'b0;
+	//assign  lcd_reset 	    = ( init_count > 40  ) ? 1'b1 : 1'b0;
+	//assign	hs_enable 		= ( init_count > 50 ) ? 1'b1 : 1'b0; // Transition to HS mode
+	//assign  ini_active		= ( init_count > 50 + 42 ) ? 1'b1: 1'b0; // Send lcd init seq
+	//assign  vid_en    		= ( init_count > 50 + 42+31 ) ? 1'b1: 1'b0; // start video
+	
+	assign  lcd_en_vcc 		= ( init_count > 1*MSEC  ) ? 1'b1 : 1'b0;
+	assign  lcd_en_vsp 		= ( init_count > 2*MSEC  ) ? 1'b1 : 1'b0;
+	assign  lcd_en_vsn 		= ( init_count > 3*MSEC  ) ? 1'b1 : 1'b0;
+	assign  lcd_reset 	    = ( init_count > 6*MSEC  ) ? 1'b1 : 1'b0;
 	assign	hs_enable 		= ( init_count > 26*MSEC ) ? 1'b1 : 1'b0; // Transition to HS mode
-	assign  ini_active		= ( init_count > 26*MSEC + 39 ) ? 1'b1: 1'b0; // Send lcd init seq
-	assign  vid_en    		= ( init_count > 26*MSEC + 39+31 ) ? 1'b1: 1'b0; // start video
+	assign  ini_active		= ( init_count > 26*MSEC + 42 ) ? 1'b1: 1'b0; // Send lcd init seq
+	assign  vid_en    		= ( init_count > 26*MSEC + 42+31 ) ? 1'b1: 1'b0; // start video
 
 	// first entry is reset state, final entry is runningstate
 	// Clk lane startup
 	//                    lp11,lp01,lp00,  clk hs00     ,clk start
-	wire [0:39] clpen = 40'b1_1111_1111_000000000000000_0_0000_0000_000000_0;
-	wire [0:39] clpdp = 40'b1_0000_0000_000000000000000_0_0000_0000_000000_0;
-	wire [0:39] clpdn = 40'b1_1111_0000_000000000000000_0_0000_0000_000000_0;
-	wire [0:39] chsen = 40'b0_0000_0000_111111111111111_1_1111_1111_111111_1;
-	wire [0:39] chsgt = 40'b0_0000_0000_000000000000000_1_1111_1111_111111_1;
+	wire [0:42] clpen = 43'b1_1111_1111_000000000000000_0000_0000_0000_000000_0;
+	wire [0:42] clpdp = 43'b1_0000_0000_000000000000000_0000_0000_0000_000000_0;
+	wire [0:42] clpdn = 43'b1_1111_0000_000000000000000_0000_0000_0000_000000_0;
+	wire [0:42] chsen = 43'b0_0000_0000_111111111111111_1111_1111_1111_111111_1;
+	wire [0:42] chsgt = 43'b0_0000_0000_000000000000000_1111_1111_1111_111111_1;
 	// Data Lane startup                         data lp11,lp01,lp00,hs0   ,hs start
-	wire [0:39] dlpen = 40'b1_1111_1111_111111111111111_1_1111_1111_000000_0;
-	wire [0:39] dlpdp = 40'b1_1111_1111_111111111111111_1_0000_0000_000000_0;
-	wire [0:39] dlpdn = 40'b1_1111_1111_111111111111111_1_1111_0000_000000_0;
-	wire [0:39] dhsen = 40'b0_0000_0000_000000000000000_0_0000_0000_111111_1;
+	wire [0:42] dlpen = 43'b1_1111_1111_111111111111111_1111_1111_1111_000000_0;
+	wire [0:42] dlpdp = 43'b1_1111_1111_111111111111111_1111_0000_0000_000000_0;
+	wire [0:42] dlpdn = 43'b1_1111_1111_111111111111111_1111_1111_0000_000000_0;
+	wire [0:42] dhsen = 43'b0_0000_0000_000000000000000_0000_0000_0000_111111_1;
 
 
 	// LP11 to MS transition takes place over 40 cycles
 	reg [5:0] start_cnt;
 	always @(posedge clk)
-		start_cnt <= ( reset ) ? 0 : ( start_cnt == 39 ) ? 39 : ( hs_enable ) ? start_cnt + 1 : 0;
+		start_cnt <= ( reset ) ? 0 : ( start_cnt == 42 ) ? 42 : ( hs_enable ) ? start_cnt + 1 : 0;
 
 	// Connect CLK lane controls
 	assign clk_txlpen 	= clpen[start_cnt]; 
