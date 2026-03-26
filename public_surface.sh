@@ -21,6 +21,7 @@ cp dsi_dump.c ../CrossLink_LCD/.
 cp left.bmp ../CrossLink_LCD/.
 cp right.bmp ../CrossLink_LCD/.
 cp mipi_init.png ../CrossLink_LCD/.
+cp lcd_first_life.jpeg ../CrossLink_LCD/.
 cp mipi_dsi_tx/mipi_dsi_tx.v ../CrossLink_LCD/mipi_dsi_tx/.
 cp user_pll/user_pll.v ../CrossLink_LCD/user_pll/.
 cp BoardTestList.txt ../CrossLink_LCD/.

@@ -238,6 +238,11 @@ This is a screenshot of the MIPI initialation transitioning from the idle state 
 
 <img src="mipi_init.png" width="800">
 
+## Sucessful MIPI Lcd Operation
+
+I can't help but just stare at this image. Getting a new video fpga design running is always a thrill.
+
+<img src="lcd_first_life.jpeg" width="600"> 
 
 # Debug Logic
 This is the *optional* part of the design. It is practically necessary though, so I tend to put it first in development for any new platform.
