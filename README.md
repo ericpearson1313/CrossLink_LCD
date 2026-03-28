@@ -234,7 +234,7 @@ So far have resisted (avoided) running a full chip simulation as it means dealin
 
 After alot of pain I got a full chip RTL simulation running. I shortened the lcd power up and reset timing delays to make simulation time reasonable. With the model of the mipi DPHY include now, I was able to observe correct MIPI initialization from LP11 throught to first VSYNC. The full chip SIMs allowed me to find the last 2 bugs in the design. The first was a copy/paste typo on a top level signal name, which would only be found by visual inspection otherwise. The second bug was nasty. The latency of the clk gate (clk_txhsgate) had an undocumented two cycle latency from input to output (in addition to being inverted). I don't know how it would have been found otherwise without an oscilloscope. I assume there is some 'better' documentation available, but I didn't have it.
 
-This is a screenshot of the MIPI initialation transitioning from the idle state LP11 through to the first VSYNC. I was able to see the mipi clock go LP11->LP01->LP00->HS0->HS, and then, after the clocks are running, the MIPI data lanes all go through LP11->LP01->LP00->HS0->SYNC->LCD_INIT->VSYNC. Pure joy, 1.2usec from idle to vsync.
+This is a screenshot of the MIPI initialization transitioning from the idle state LP11 through to the first VSYNC. I was able to see the mipi clock go LP11->LP01->LP00->HS0->HS, and then, after the clocks are running, the MIPI data lanes all go through LP11->LP01->LP00->HS0->SYNC->LCD_INIT->VSYNC. Pure joy, 1.2usec from idle to vsync.
 
 <img src="mipi_init.png" width="800">
 
@@ -243,6 +243,13 @@ This is a screenshot of the MIPI initialation transitioning from the idle state 
 I can't help but just stare at this image. Getting a new video fpga design running is always a thrill.
 
 <img src="lcd_first_life.jpeg" width="600"> 
+
+### A Verilog Clock!
+
+After bring up of a new video platform you need a sample application. A fellow enthusiast contributed a Verilog clock module. It was used during testing with this small display shown below. A great lo-tec watch.
+
+[![Verilog Clock](https://eric-afi-bucket.s3.us-east-1.amazonaws.com/verilog_clock.gif)](https://eric-afi-bucket.s3.us-east-1.amazonaws.com/verilog_clock.mov)
+
 
 # Debug Logic
 This is the *optional* part of the design. It is practically necessary though, so I tend to put it first in development for any new platform.
