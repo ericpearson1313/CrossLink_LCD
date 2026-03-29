@@ -287,7 +287,7 @@ module chip_top (
 	wire [95:0] left_rgb;
 	wire [2:0] l_phase;
 	wire l_hsync, l_vsync, l_active;
-	wire [3:0] ovl, ovl0, ovl1, ovl2;
+	wire [3:0] ovl0;
 	
 	mipi_format_lcd i_lvideo (
 		// System
@@ -319,7 +319,7 @@ module chip_top (
 		.active( l_active ),
 		.phase ( l_phase[2:0] ),
 		// RGB Inputs
-		.rgb	( left_rgb[95:0] | {{24{ovl[0]}},{24{ovl[1]}},{24{ovl[2]}},{24{ovl[3]}}} )
+		.rgb	( left_rgb[95:0] )
 	); 
 	// RIGHT Lane
 	wire [95:0] right_rgb;
@@ -366,7 +366,10 @@ module chip_top (
 	// 4 rgb pels per cycle, full width, min freq clock 
 	// Output left and right half pel lane to D-Phys
 	wire p_active, p_hsync, p_vsync;
-	wire [95:0] p_rgb;
+	wire [95:0] p_rgb_base;
+	wire [95:0] p_rgb_mix;
+	wire [95:0] rgb_clock_ovl;
+	wire [95:0] rgb_commit_ovl;
 	lcd_split i_splotter(
 		// System
 		.reset ( reset ),
@@ -386,7 +389,7 @@ module chip_top (
 		.r_vsync( r_vsync ),
 		// Pixel Interface
 		.p_clk ( pclkd4 ),	
-		.p_rgb ( p_rgb ),
+		.p_rgb ( p_rgb_mix ),
 		.p_hsync( p_hsync ),
 		.p_vsync( p_vsync ),
 		.p_active( p_active )
@@ -405,49 +408,86 @@ module chip_top (
 		.hsync	( p_hsync ),
 		.active ( p_active ),
 		// RGB Outputs
-		.rgb( p_rgb )
+		.rgb( p_rgb_base )
 	);
 
- 
-	// Hex overlays
-	wire [7:0] char_x, char_y;
-	wire [63:0] hex_char;
-	hex_font4 i_font (
-		// system
-		.clk	( pclkd4 ),
-		.reset  ( reset ),
-		// Video sync input
-		.vsync	( p_vsync ),
-		.hsync	( p_hsync ),
-		.active ( p_active ),
-		// Char location and data
-		.char_x ( char_x ),
-		.char_y ( char_y ),
-		.hex_char ( hex_char )
-	);
+	// Commit overlay, kept in full-raster domain so lcd_split handles the lane split
+	commit_overlay i_com_ovl( pclkd4, reset, p_vsync, p_hsync, p_active, ovl0, led0 );
+	assign rgb_commit_ovl = {{24{ovl0[0]}},{24{ovl0[1]}},{24{ovl0[2]}},{24{ovl0[3]}}};
 
-	// Overlay on Left Lane
-	// Commit overlay, sh watermark.sh after pull before building
-	commit_overlay i_com_ovl( pclkd4, reset, p_vsync, p_hsync, p_active, ovl0, led0 ); 
-
-	
-	// Frame counter hex overlay
-	reg [31:0] frame_count;
+	// 90 fps elapsed-time clock and frame counter
+	reg p_vsync_d;
+	reg [6:0] frame_90;
+	reg [5:0] sec_ones, sec_tens, min_ones, min_tens, hour_ones, hour_tens;
 	always @(posedge pclkd4) begin
-		frame_count <= ( reset ) ? 0 : ( p_vsync ) ? frame_count + 1 : frame_count;
+		p_vsync_d <= p_vsync;
+		if (reset) begin
+			frame_90  <= 7'd0;
+			sec_ones  <= 6'd0;
+			sec_tens  <= 6'd0;
+			min_ones  <= 6'd0;
+			min_tens  <= 6'd0;
+			hour_ones <= 6'd0;
+			hour_tens <= 6'd0;
+		end else if (p_vsync && !p_vsync_d) begin
+			if (frame_90 == 7'd90) begin
+				frame_90 <= 7'd0;
+				if (sec_ones == 6'd9) begin
+					sec_ones <= 6'd0;
+					if (sec_tens == 6'd5) begin
+						sec_tens <= 6'd0;
+						if (min_ones == 6'd9) begin
+							min_ones <= 6'd0;
+							if (min_tens == 6'd5) begin
+								min_tens <= 6'd0;
+								if ((hour_tens == 6'd2) && (hour_ones == 6'd3)) begin
+									hour_tens <= 6'd0;
+									hour_ones <= 6'd0;
+								end else if (hour_ones == 6'd9) begin
+									hour_ones <= 6'd0;
+									hour_tens <= hour_tens + 6'd1;
+								end else begin
+									hour_ones <= hour_ones + 6'd1;
+								end
+							end else begin
+								min_tens <= min_tens + 6'd1;
+							end
+						end else begin
+							min_ones <= min_ones + 6'd1;
+						end
+					end else begin
+						sec_tens <= sec_tens + 6'd1;
+					end
+				end else begin
+					sec_ones <= sec_ones + 6'd1;
+				end
+			end else begin
+				frame_90 <= frame_90 + 7'd1;
+			end
+		end
 	end
-	hex_overlay4 #( 8 ) i_hex1( pclkd4, reset, char_x, char_y, hex_char, frame_count, 8'd90, 8'd4, ovl1 );
-	
-	// Clock counter hex overlay 
-	reg [31:0] clk_count;
-	always @(posedge pclkd4) 
-		clk_count <= ( reset ) ? 0 : clk_count + 1;
-	hex_overlay4 #( 8 ) i_hex2( pclkd4, reset, char_x, char_y, hex_char, clk_count, 8'd90, 8'd6, ovl2 );
-	
-	// Or together the overlays
-	// Toggle debug overlay HERE, synthesis removed unsed logic
-	//assign ovl = ovl0; // just commit overlay rom, small (+3%) try to always keep!
-	assign ovl = ovl0 | ovl1 | ovl2; // add dynamic debug overlays, largish (cost=14%), can be useful
+
+	wire [3:0] frame_tens_d = frame_90 / 10;
+	wire [3:0] frame_ones_d = frame_90 % 10;
+
+	big_clock_overlay_rgb i_big_clock (
+		.clk       ( pclkd4 ),
+		.reset     ( reset ),
+		.vsync     ( p_vsync ),
+		.hsync     ( p_hsync ),
+		.active    ( p_active ),
+		.hour_tens ( hour_tens[3:0] ),
+		.hour_ones ( hour_ones[3:0] ),
+		.min_tens  ( min_tens[3:0] ),
+		.min_ones  ( min_ones[3:0] ),
+		.sec_tens  ( sec_tens[3:0] ),
+		.sec_ones  ( sec_ones[3:0] ),
+		.frame_tens( frame_tens_d ),
+		.frame_ones( frame_ones_d ),
+		.rgb       ( rgb_clock_ovl )
+	);
+
+	assign p_rgb_mix = p_rgb_base | rgb_clock_ovl | rgb_commit_ovl;
 
 endmodule
 
@@ -1135,6 +1175,128 @@ module smpte_test(	clk, act, x,	y,	r,	g, b );
 	end
 	// Output
 	assign {r,g,b} = rgb;
+endmodule
+
+
+module big_clock_overlay_rgb (
+	clk,
+	reset,
+	vsync,
+	hsync,
+	active,
+	hour_tens,
+	hour_ones,
+	min_tens,
+	min_ones,
+	sec_tens,
+	sec_ones,
+	frame_tens,
+	frame_ones,
+	rgb
+);
+	input wire clk, reset, vsync, hsync, active;
+	input wire [3:0] hour_tens, hour_ones, min_tens, min_ones, sec_tens, sec_ones;
+	input wire [3:0] frame_tens, frame_ones;
+	output wire [95:0] rgb;
+
+	reg [10:0] x;
+	reg [10:0] y;
+	reg del_active;
+	always @(posedge clk) begin
+		del_active <= active;
+		y <= (vsync) ? 11'd0 : ((del_active && !active) ? (y + 11'd1) : y);
+		x <= (hsync) ? 11'd0 : (active ? (x + 11'd1) : x);
+	end
+
+	function seg_a; input [3:0] d; begin seg_a = (d!=4'd1)&&(d!=4'd4); end endfunction
+	function seg_b; input [3:0] d; begin seg_b = (d!=4'd5)&&(d!=4'd6); end endfunction
+	function seg_c; input [3:0] d; begin seg_c = (d!=4'd2); end endfunction
+	function seg_d; input [3:0] d; begin seg_d = (d!=4'd1)&&(d!=4'd4)&&(d!=4'd7); end endfunction
+	function seg_e; input [3:0] d; begin seg_e = (d==4'd0)||(d==4'd2)||(d==4'd6)||(d==4'd8); end endfunction
+	function seg_f; input [3:0] d; begin seg_f = (d==4'd0)||(d==4'd4)||(d==4'd5)||(d==4'd6)||(d==4'd8)||(d==4'd9); end endfunction
+	function seg_g; input [3:0] d; begin seg_g = (d!=4'd0)&&(d!=4'd1)&&(d!=4'd7); end endfunction
+
+	function digit_px;
+		input integer px, py, sx, sy, dw, dh, th;
+		input [3:0] val;
+		integer mid0, mid1;
+		begin
+			mid0 = sy + (dh >> 1) - (th >> 1);
+			mid1 = mid0 + th - 1;
+			digit_px = 1'b0;
+			if ((px >= sx) && (px < (sx + dw)) && (py >= sy) && (py < (sy + dh))) begin
+				if (seg_a(val) && (py >= sy) && (py < (sy + th)) && (px >= (sx + th)) && (px < (sx + dw - th)))
+					digit_px = 1'b1;
+				else if (seg_d(val) && (py >= (sy + dh - th)) && (py < (sy + dh)) && (px >= (sx + th)) && (px < (sx + dw - th)))
+					digit_px = 1'b1;
+				else if (seg_g(val) && (py >= mid0) && (py <= mid1) && (px >= (sx + th)) && (px < (sx + dw - th)))
+					digit_px = 1'b1;
+				else if (seg_f(val) && (px >= sx) && (px < (sx + th)) && (py >= (sy + th)) && (py < mid0))
+					digit_px = 1'b1;
+				else if (seg_b(val) && (px >= (sx + dw - th)) && (px < (sx + dw)) && (py >= (sy + th)) && (py < mid0))
+					digit_px = 1'b1;
+				else if (seg_e(val) && (px >= sx) && (px < (sx + th)) && (py > mid1) && (py < (sy + dh - th)))
+					digit_px = 1'b1;
+				else if (seg_c(val) && (px >= (sx + dw - th)) && (px < (sx + dw)) && (py > mid1) && (py < (sy + dh - th)))
+					digit_px = 1'b1;
+			end
+		end
+	endfunction
+
+	function colon_px;
+		input integer px, py, sx, sy, cw, ch, dot;
+		integer cx0, cx1, cy0a, cy1a, cy0b, cy1b;
+		begin
+			cx0 = sx + ((cw - dot) >> 1);
+			cx1 = cx0 + dot - 1;
+			cy0a = sy + (ch >> 2) - (dot >> 1);
+			cy1a = cy0a + dot - 1;
+			cy0b = sy + ((3*ch) >> 2) - (dot >> 1);
+			cy1b = cy0b + dot - 1;
+			colon_px = ((px >= cx0) && (px <= cx1) && (py >= cy0a) && (py <= cy1a)) ||
+			           ((px >= cx0) && (px <= cx1) && (py >= cy0b) && (py <= cy1b));
+		end
+	endfunction
+
+	function pixel_on;
+		input integer px, py;
+		integer top_y, bot_y, x0, step, colon_w, digit_w, digit_h, thick, bot_w, bot_h, bot_t;
+		begin
+			digit_w = 80;
+			digit_h = 140;
+			thick   = 12;
+			colon_w = 20;
+			step    = 92;
+			x0      = 500;
+			top_y   = 300;
+			bot_w   = 60;
+			bot_h   = 100;
+			bot_t   = 10;
+			bot_y   = 470;
+			pixel_on =
+				digit_px(px,py,x0 + step*0, top_y, digit_w, digit_h, thick, hour_tens) ||
+				digit_px(px,py,x0 + step*1, top_y, digit_w, digit_h, thick, hour_ones) ||
+				colon_px(px,py,x0 + step*2 - 6, top_y, colon_w, digit_h, 14) ||
+				digit_px(px,py,x0 + step*2 + 20, top_y, digit_w, digit_h, thick, min_tens) ||
+				digit_px(px,py,x0 + step*3 + 20, top_y, digit_w, digit_h, thick, min_ones) ||
+				colon_px(px,py,x0 + step*4 + 14, top_y, colon_w, digit_h, 14) ||
+				digit_px(px,py,x0 + step*4 + 40, top_y, digit_w, digit_h, thick, sec_tens) ||
+				digit_px(px,py,x0 + step*5 + 40, top_y, digit_w, digit_h, thick, sec_ones) ||
+				digit_px(px,py,714, bot_y, bot_w, bot_h, bot_t, frame_tens) ||
+				digit_px(px,py,786, bot_y, bot_w, bot_h, bot_t, frame_ones);
+		end
+	endfunction
+
+	reg [95:0] rgb_reg;
+	integer base_x;
+	always @(posedge clk) begin
+		base_x = {x, 2'b00};
+		rgb_reg[95:72] <= (active && pixel_on(base_x + 0, y)) ? 24'hFFFFFF : 24'h000000;
+		rgb_reg[71:48] <= (active && pixel_on(base_x + 1, y)) ? 24'hFFFFFF : 24'h000000;
+		rgb_reg[47:24] <= (active && pixel_on(base_x + 2, y)) ? 24'hFFFFFF : 24'h000000;
+		rgb_reg[23: 0] <= (active && pixel_on(base_x + 3, y)) ? 24'hFFFFFF : 24'h000000;
+	end
+	assign rgb = rgb_reg;
 endmodule
 
 module hex_font4 (
